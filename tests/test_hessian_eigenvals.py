@@ -1,7 +1,7 @@
 import numpy as np
 from context import solvers, utils
 from solvers import utils
-from solvers.utils import hessian_eigenvals
+from solvers.utils import hessian_eigenvals_interp
 
 # Set up computational domain 
 Nx = 21                      #grid size
@@ -11,5 +11,5 @@ X, Y = np.meshgrid(x,x,sparse=False,indexing='ij') # create x & y gridpoints, wi
 
 U = 10000*X*(X-.25)*(X-.5)*(X-1)*Y*(Y-.5)*(Y-.75)*(Y-1)
 
-lambda_max = solvers.utils.hessian_eigenvals.max(U,dx)
-lambda_min = solvers.utils.hessian_eigenvals.min(U,dx)
+lambda_max = solvers.utils.hessian_eigenvals_interp.max(U,dx)
+lambda_min = solvers.utils.hessian_eigenvals_interp.min(U,dx)
