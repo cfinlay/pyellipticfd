@@ -122,5 +122,5 @@ def min(U,dx):
                                             2*B[Case3]*C[Case3] + 2*C[Case3]**2))
         Dvv[:,:,k] = Dvv_tmp
 
-    lambda_min = np.amax(Dvv, axis = 2)
+    lambda_min = np.amin(Dvv, axis = 2)
     return lambda_min
