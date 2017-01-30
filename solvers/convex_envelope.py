@@ -48,7 +48,7 @@ def euler_step(G,dx,tol=1e-6,max_iters=1e4):
     # Now iterate until a steady state is reached
     iters = 0
     while (iters < max_iters):
-        lambda_1 = solvers.utils.hessian_eigenvals_interp.min(Uold,dx)
+        lambda_1, theta = solvers.utils.hessian_eigenvals_interp.min(Uold,dx)
 
         Uint = Uold[1:-1,1:-1] + dt * np.minimum(lambda_1,G[1:-1,1:-1] - Uold[1:-1,1:-1])
         diff = np.amax(np.absolute(Uold[1:-1,1:-1] - Uint))

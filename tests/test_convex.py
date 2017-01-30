@@ -15,7 +15,7 @@ def obstacle_fcn(X,Y):
     return -np.absolute(X*(X-.5)*(X-1))
 # Calculate the obstacle and optionally plot it
 G = obstacle_fcn(X,Y)
-#ploh_utils.plotter3d(X,Y,G)
+#plot_utils.plotter3d(X,Y,G)
 
 U = convex_envelope.euler_step(G,dx)
 plot_utils.plotter3d(X,Y,U)
