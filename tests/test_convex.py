@@ -12,10 +12,19 @@ X, Y = np.meshgrid(x,x,sparse=False,indexing='ij') # create x & y gridpoints, wi
 
 # Define an obstacle
 def obstacle_fcn(X,Y):
-    return -np.absolute(X*(X-.5)*(X-1))
+    return np.absolute((X-.25)*(X-.75))
+
 # Calculate the obstacle and optionally plot it
 G = obstacle_fcn(X,Y)
 #plot_utils.plotter3d(X,Y,G)
 
 U = convex_envelope.euler_step(G,dx)
 plot_utils.plotter3d(X,Y,U)
+
+#Utrue = np.zeros(U.size)
+#Cases = (np.logical_or(X<=.25,X>=.75),
+#         np.logical_and(X>.25,X<.75))
+#
+#Utrue[Cases[0]] = G[Cases[0]]
+#Utrue[Cases[1]] = 0
+
