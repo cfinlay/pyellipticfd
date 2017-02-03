@@ -1,5 +1,6 @@
 import numpy as np
 import directional_derivatives_interp as ddi
+import warnings
 
 def euler_step(G,dx,tol=1e-6,max_iters=1e4):
     """
@@ -26,7 +27,6 @@ def euler_step(G,dx,tol=1e-6,max_iters=1e4):
     u : array_like
         The convex envelope.
     """
-
     Nx, Ny = G.shape
 
     dt = dx ** 2  #time step, from CFL condition
@@ -51,4 +51,6 @@ def euler_step(G,dx,tol=1e-6,max_iters=1e4):
     U = np.copy(G)
     U[1:-1,1:-1] = Uint
 
+    if iters >= max_iters:
+        warnings.warn("Maximum iterations reached without attaining specified tolerance")
     return U
