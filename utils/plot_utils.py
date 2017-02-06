@@ -10,7 +10,7 @@ def plotter3d(X,Y,Z):
     #Now create the figure
     fig = plt.figure()
     ax = fig.gca(projection='3d')
-    surf = ax.plot_surface(X,Y,Z,cmap='inferno',rstride=1,cstride=1,linewidth=0.01,antialiased=False)
+    surf = ax.plot_surface(X,Y,Z,cmap=plt.cm.Spectral,rstride=1,cstride=1,linewidth=0.01,antialiased=False)
     ax.zaxis.set_major_locator(LinearLocator(10))
     ax.zaxis.set_major_formatter(FormatStrFormatter('%.02f'))
     fig.colorbar(surf, shrink=0.5, aspect=5)
