@@ -32,24 +32,21 @@ def euler_step(G,dx,tol=1e-6,max_iters=1e4):
     dt = dx ** 2  #time step, from CFL condition
 
     # Preallocate memory
-    Uold = np.copy(G)
+    U = np.copy(G)
 
     # Now iterate until a steady state is reached
     iters = 0
     while (iters < max_iters):
-        lambda_1 = ddi.d2min(Uold,dx)[0]
+        lambda_1 = ddi.d2min(U,dx)[0]
 
-        Uint = Uold[1:-1,1:-1] + dt * np.minimum(lambda_1,G[1:-1,1:-1] - Uold[1:-1,1:-1])
-        diff = np.amax(np.absolute(Uold[1:-1,1:-1] - Uint))
+        Uint = U[1:-1,1:-1] + dt * np.minimum(lambda_1,G[1:-1,1:-1] - U[1:-1,1:-1])
+        diff = np.amax(np.absolute(U[1:-1,1:-1] - Uint))
 
         if diff < tol:
             break
        
-        Uold[1:-1,1:-1] = Uint
+        U[1:-1,1:-1] = Uint
         iters = iters + 1
-
-    U = np.copy(G)
-    U[1:-1,1:-1] = Uint
 
     if iters >= max_iters:
         warnings.warn("Maximum iterations reached without attaining specified tolerance")
