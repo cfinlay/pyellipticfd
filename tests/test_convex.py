@@ -19,15 +19,10 @@ def obstacle_fcn(X,Y):
 
 # Calculate the obstacle and optionally plot it
 G = obstacle_fcn(X,Y)
-#plot_utils.plotter3d(X,Y,G)
 
-U = convex_envelope.euler_step(G,dx,max_iters=1e4)
-plot_utils.plotter3d(X,Y,U)
+Eul = convex_envelope.euler_step(G,dx,max_iters=1e5)
+#plot_utils.plotter3d(X,Y,U)
 
-#Utrue = np.zeros(U.size)
-#Cases = (np.logical_or(X<=.25,X>=.75),
-#         np.logical_and(X>.25,X<.75))
-#
-#Utrue[Cases[0]] = G[Cases[0]]
-#Utrue[Cases[1]] = 0
+Pol = convex_envelope.policy(G,dx,max_iters=1e5)
+#utils.plot_utils.plotter3d(X,Y,U)
 
