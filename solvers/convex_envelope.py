@@ -33,7 +33,7 @@ def euler_step(G,dx,solution_tol=1e-4,max_iters=1e5):
     diff: scalar
         Maximum absolute difference between the solution and the previous iterate.
     """
-    dt = dx ** 2  #time step, from CFL condition
+    dt = 1/2*dx ** 2  #time step, from CFL condition
 
     def F(W):
         lambda_1 = ddi.d2min(W,dx)[0]
@@ -43,10 +43,10 @@ def euler_step(G,dx,solution_tol=1e-4,max_iters=1e5):
     return U, iters, diff
 
 def policy(G,dx,solution_tol=1e-4,max_iters=1e5,policy_tol=1e-2,
-           euler_tol=1e-3, max_euler_iters=1e3):
+           euler_tol=1e-3, max_euler_iters=15):
 
     Th = ddi.d2min(G,dx)[1] # initialize policy 
-    dt = dx ** 2  #time step, from CFL condition
+    dt = 1/2*dx ** 2  #time step, from CFL condition
     U = G
     iters = 0
     

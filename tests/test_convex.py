@@ -23,6 +23,6 @@ G = obstacle_fcn(X,Y)
 Eul = convex_envelope.euler_step(G,dx,max_iters=1e5)
 #plot_utils.plotter3d(X,Y,U)
 
-Pol = convex_envelope.policy(G,dx,max_iters=1e5)
+Pol = convex_envelope.policy(G,dx,max_iters=1e5,max_euler_iters=30)
 #utils.plot_utils.plotter3d(X,Y,U)
 
