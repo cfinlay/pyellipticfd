@@ -402,7 +402,7 @@ def d2min(U,dx):
 
 def d2max(U,dx):
     """
-    d2min(u,dx) 
+    d2max(u,dx) 
     
     Compute the maximum eigenvalues of the Hessian of U.
     Equivalent to calling d2eigs(u,dx,eigs="max")

@@ -1,10 +1,12 @@
 import numpy as np
 import directional_derivatives_interp as ddi
+import directional_derivatives_grid as ddg
 import warnings
 from euler import *
 import itertools
+from utils import diff as df
 
-def euler_step(G,dx,solution_tol=1e-4,max_iters=1e5):
+def euler_step(G,dx,solution_tol=1e-4,max_iters=1e5,method='grid'):
     """
     euler_step(g,dx,solution_tol=1e-4,max_iters=1e5) 
     
@@ -17,12 +19,14 @@ def euler_step(G,dx,solution_tol=1e-4,max_iters=1e5):
     ----------
     g : array_like
         A 2D array of the function g.
-    dx : scalar
-        dx is the uniform grid spacing.
+    dx : scalar        dx is the uniform grid spacing.
     solution_tol : scalar
         Stopping criterion.
     max_iters : int
         Maximum number of iterations.
+    method : string
+        Specify the monotone finite difference method of computing the minimum
+        eigenvalue.  Either 'grid' or 'interpolate'.
 
     Returns
     -------
@@ -36,15 +40,21 @@ def euler_step(G,dx,solution_tol=1e-4,max_iters=1e5):
     dt = 1/2*dx ** 2  #time step, from CFL condition
     U = G.copy()
 
-    def F(W):
-        lambda_1 = ddi.d2min(W,dx)[0]
-        return np.minimum(lambda_1, G[1:-1,1:-1] - W[1:-1,1:-1])
+    if method=="interpolate":
+        def F(W):
+            lambda_1 = ddi.d2min(W,dx)[0]
+            return np.minimum(lambda_1, G[1:-1,1:-1] - W[1:-1,1:-1])
+    elif method=="grid":
+        def F(W):
+            lambda_1 = ddg.d2min(W,dx)
+            return np.minimum(lambda_1, G[1:-1,1:-1] - W[1:-1,1:-1])
 
     U, iters, diff = euler(U,F,dt,solution_tol=solution_tol,max_iters=max_iters)
 
     if iters >= max_iters:
         warnings.warn("Maximum iterations reached")
     return U, iters, diff
+
 
 def policy(G,dx,solution_tol=1e-4,max_iters=1e5,policy_tol=1e-2,
            euler_tol=1e-3, max_euler_iters=15):
