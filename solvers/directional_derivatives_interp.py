@@ -8,7 +8,7 @@ __stencil = np.array([[  1,  0],
                       [ -1,  0],
                       [ -1, -1],
                       [ -1,  0],
-                      [  1, -1]])
+                      [  1, -1]], dtype=np.intp)
 
 # Arrangement of neighbouring stencil vectors: basis vector first
 __nb_pts = np.array([[[1, 0], [1,1]],
@@ -18,7 +18,7 @@ __nb_pts = np.array([[[1, 0], [1,1]],
                      [[-1,0], [-1,-1]],
                      [[0,-1], [-1,-1]],
                      [[0,-1], [1,-1]],
-                     [[1,0], [1,-1]]])
+                     [[1,0], [1,-1]]], dtype=np.intp)
 
 def d1da(U,dx,direction="both"):
     """
@@ -397,8 +397,7 @@ def d2min(U,dx):
     Compute the minimum eigenvalues of the Hessian of U.
     Equivalent to calling d2eigs(u,dx,eigs="min")
     """
-    Lambda, Theta = d2eigs(U,dx,eigs="min")
-    return Lambda, Theta
+    return d2eigs(U,dx,eigs="min")
 
 def d2max(U,dx):
     """
@@ -407,5 +406,4 @@ def d2max(U,dx):
     Compute the maximum eigenvalues of the Hessian of U.
     Equivalent to calling d2eigs(u,dx,eigs="max")
     """
-    Lambda, Theta = d2eigs(U,dx,eigs="max")
-    return Lambda, Theta
+    return d2eigs(U,dx,eigs="max")
