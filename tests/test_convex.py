@@ -40,6 +40,7 @@ Eul_intp = convex_envelope.euler_step(G,dx,max_iters=1e5, method='interpolate')
 #plt.figure()
 #plt.contour(X, Y, Eul_intp[0])
 
+#Be forwarned: policy iteration on grid is slow -- could be a bug, TODO: profile code
 print("\nPolicy iteration, on grid")
 ipython.magic("timeit convex_envelope.policy(G,dx,max_iters=1e5,max_euler_iters=15, method='grid')")
 Pol_grid = convex_envelope.policy(G,dx,max_iters=1e5,max_euler_iters=15,method='grid')
