@@ -1,35 +1,59 @@
 import numpy as np
 
-__stencil = np.array([[0,1],
+stencil = np.array([[0,1],
                 [1,1],
                 [1,0],
                 [-1,1],
                 [1,2],
                 [2,1],
                 [-2,1],
-                [-1,2]])
+                [-1,2]], dtype=np.intp)
 
-def d2(U,v,dx):
+def d2(U,stencil,dx,ix=np.array([0])):
     """
     d2(U,v,dx)
+    d2(U,stencil,dx,stencil_index)
 
     Returns second derivative in the direction v using a centered difference.
     """
     Nx, Ny = U.shape
-    w = np.max(np.abs(v))       #width of vectors
-    norm_v = np.linalg.norm(v)  #length of the vector
+    if ix.size==1:
+        if stencil.ndim==1:
+            v = stencil
+        else:
+            v = stencil[ix]
 
-    #recover interior index appropriate for stencil of width w
-    ind_x = np.arange(w,Nx-w,dtype = np.intp) 
-    ind_y = np.arange(w,Ny-w,dtype = np.intp)
+        w = np.max(np.abs(v))       #width of vector
+        norm_v = np.linalg.norm(v)  #length of the vector
 
-    c = np.ix_(ind_x,ind_y)              #center index
-    f = np.ix_(ind_x-v[0],ind_y-v[1])    #forward 
-    b = np.ix_(ind_x+v[0],ind_y+v[1])    #backward
+        #recover interior index appropriate for stencil of width w
+        ind_x = np.arange(w,Nx-w,dtype = np.intp) 
+        ind_y = np.arange(w,Ny-w,dtype = np.intp)
 
-    uvv = U[f] + U[b] - 2 * U[c]
-    uvv = uvv/(norm_v*dx)**2
-    return uvv
+        c = np.ix_(ind_x,ind_y)              #center index
+        f = np.ix_(ind_x-v[0],ind_y-v[1])    #forward 
+        b = np.ix_(ind_x+v[0],ind_y+v[1])    #backward
+
+        uvv = U[f] + U[b] - 2 * U[c]
+        uvv = uvv/(norm_v*dx)**2
+        return uvv
+    else:
+        v = stencil[ix,:]
+        normv2 = stencil[ix,0]**2 + stencil[ix,1]**2
+        minw = np.min(np.abs(stencil).max(1))
+
+        I, J =  np.indices(U.shape)
+        I = I[minw:Nx-minw,minw:Ny-minw]
+        J = J[minw:Nx-minw,minw:Ny-minw]
+
+        C = U[I,J]
+        F = U[I+v[:,:,0],J+v[:,:,1]]
+        B = U[I-v[:,:,0],J-v[:,:,1]]
+
+        return (-2*C + F + B)/(dx**2 * normv2)
+
+        
+
     
 def d1abs(U,v,dx):
     """
@@ -56,7 +80,7 @@ def d1abs(U,v,dx):
     uv = uv/(dx*norm_v)
     return uv
 
-def d2eigs(U,dx,stencil=__stencil,eigs="both"):
+def d2eigs(U,dx,stencil=stencil,eigs="both"):
     """
     d2eigs(U,dx,stencil=default_stencil,eigs="both") 
     
@@ -82,8 +106,8 @@ def d2eigs(U,dx,stencil=__stencil,eigs="both"):
     """
     Nx, Ny = U.shape
 
-    widths = np.linalg.norm(stencil,axis=1,ord=np.inf)
-    
+    widths = np.abs(stencil).max(1)    
+
     # Assume first vector in stencil has width 1
     # TODO: otherwise throw Exception
     if eigs=="both" or eigs=="min":
@@ -95,7 +119,6 @@ def d2eigs(U,dx,stencil=__stencil,eigs="both"):
 
     for k, (v, w) in enumerate(zip(stencil[1:], widths[1:])):
         Dvv = d2(U,v,dx)
-        w = int(w)
         if eigs=="both" or eigs=="min":
             l = lambda_min[(w-1):(Nx-1-w),(w-1):(Ny-1-w)]
             subix = ix_min[(w-1):(Nx-1-w),(w-1):(Ny-1-w)]
@@ -120,7 +143,7 @@ def d2eigs(U,dx,stencil=__stencil,eigs="both"):
     elif eigs=="max":
         return lambda_max, ix_max
 
-def d2min(U,dx,stencil=__stencil):
+def d2min(U,dx,stencil=stencil):
     """
     d2min(u,dx,stencil=default_stencil) 
     
@@ -129,7 +152,7 @@ def d2min(U,dx,stencil=__stencil):
     """
     return d2eigs(U,dx,stencil,eigs="min")
 
-def d2max(U,dx,stencil=__stencil):
+def d2max(U,dx,stencil=stencil):
     """
     d2max(u,dx,stencil=default_stencil) 
     

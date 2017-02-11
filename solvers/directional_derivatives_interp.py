@@ -8,7 +8,7 @@ __stencil = np.array([[  1,  0],
                       [ -1,  0],
                       [ -1, -1],
                       [ -1,  0],
-                      [  1, -1]])
+                      [  1, -1]], dtype=np.intp)
 
 # Arrangement of neighbouring stencil vectors: basis vector first
 __nb_pts = np.array([[[1, 0], [1,1]],
@@ -18,7 +18,7 @@ __nb_pts = np.array([[[1, 0], [1,1]],
                      [[-1,0], [-1,-1]],
                      [[0,-1], [-1,-1]],
                      [[0,-1], [1,-1]],
-                     [[1,0], [1,-1]]])
+                     [[1,0], [1,-1]]], dtype=np.intp)
 
 def d1da(U,dx,direction="both"):
     """
