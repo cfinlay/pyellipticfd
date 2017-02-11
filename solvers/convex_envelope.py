@@ -4,7 +4,6 @@ import directional_derivatives_grid as ddg
 import warnings
 from euler import *
 import itertools
-from utils import diff as df
 
 def euler_step(G,dx,solution_tol=1e-4,max_iters=1e5,method='grid'):
     """
