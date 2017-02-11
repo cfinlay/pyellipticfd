@@ -4,7 +4,6 @@ import directional_derivatives_grid as ddg
 import warnings
 from euler import *
 import itertools
-from utils import diff as df
 
 def euler_step(G,dx,solution_tol=1e-4,max_iters=1e5,method='grid'):
     """
@@ -46,7 +45,7 @@ def euler_step(G,dx,solution_tol=1e-4,max_iters=1e5,method='grid'):
             return np.minimum(lambda_1, G[1:-1,1:-1] - W[1:-1,1:-1])
     elif method=="grid":
         def F(W):
-            lambda_1 = ddg.d2min(W,dx)
+            lambda_1 = ddg.d2min(W,dx)[0]
             return np.minimum(lambda_1, G[1:-1,1:-1] - W[1:-1,1:-1])
 
     U, iters, diff = euler(U,F,dt,solution_tol=solution_tol,max_iters=max_iters)
