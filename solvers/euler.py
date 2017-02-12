@@ -1,5 +1,6 @@
 import numpy as np
 import itertools
+import warnings
 
 def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5):
     """
@@ -42,4 +43,5 @@ def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5):
         if diff < solution_tol:
             return U, i, diff
         elif i >= max_iters:
+            warnings.warn("Maximum iterations reached")
             return U, i, diff

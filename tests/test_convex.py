@@ -26,31 +26,31 @@ G = abs(np.minimum(np.sqrt((X+a[0])**2+(Y+a[1])**2),
                    np.sqrt((X+b[0])**2+(Y+b[1])**2)))
 
 
-print("Euler step, on grid:")
-ipython.magic("timeit convex_envelope.euler_step(G,dx,max_iters=1e5, method='grid')")
+#print("Euler step, on grid:")
+#ipython.magic("timeit convex_envelope.euler_step(G,dx,max_iters=1e5, method='grid')")
 Eul_grid = convex_envelope.euler_step(G,dx,max_iters=1e5, method='grid')
 #utils.plot_utils.plotter3d(X,Y,Eul_grid[0])
 #plt.figure()
 #plt.contour(X, Y, Eul_grid[0])
 
-print("\nEuler step, interpolating:")
-ipython.magic("timeit convex_envelope.euler_step(G,dx,max_iters=1e5, method='interpolate')")
+#print("\nEuler step, interpolating:")
+#ipython.magic("timeit convex_envelope.euler_step(G,dx,max_iters=1e5, method='interpolate')")
 Eul_intp = convex_envelope.euler_step(G,dx,max_iters=1e5, method='interpolate')
 #utils.plot_utils.plotter3d(X,Y,Eul_intp[0])
 #plt.figure()
 #plt.contour(X, Y, Eul_intp[0])
 
-#Be forwarned: policy iteration on grid is slow -- could be a bug, TODO: profile code
-print("\nPolicy iteration, on grid")
-ipython.magic("timeit convex_envelope.policy(G,dx,max_iters=1e5,max_euler_iters=15, method='grid')")
-Pol_grid = convex_envelope.policy(G,dx,max_iters=1e5,max_euler_iters=15,method='grid')
+#Be forwarned: policy iteration on grid is slow -- could be a bug, TODO: profile & fumigate code
+#print("\nPolicy iteration, on grid")
+#ipython.magic("timeit convex_envelope.policy(G,dx,max_iters=1e5,max_euler_iters=15, method='grid')")
+Pol_grid = convex_envelope.policy_iteration(G,dx,max_iters=1e5,max_euler_iters=15,method='grid')
 #utils.plot_utils.plotter3d(X,Y,Pol_grid[0])
 #plt.figure()
 #plt.contour(X, Y, Pol[0])
 
-print("\nPolicy iteration, interpolating")
-ipython.magic("timeit convex_envelope.policy(G,dx,max_iters=1e5,max_euler_iters=15, method='interpolate')")
-Pol_intp = convex_envelope.policy(G,dx,max_iters=1e5,max_euler_iters=15, method='interpolate')
+#print("\nPolicy iteration, interpolating")
+#ipython.magic("timeit convex_envelope.policy(G,dx,max_iters=1e5,max_euler_iters=15, method='interpolate')")
+Pol_intp = convex_envelope.policy_iteration(G,dx,max_iters=1e5,max_euler_iters=15, method='interpolate')
 #utils.plot_utils.plotter3d(X,Y,Pol_intp[0])
 #plt.figure()
 #plt.contour(X, Y, Pol[0])

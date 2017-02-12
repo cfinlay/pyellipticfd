@@ -2,10 +2,11 @@ import numpy as np
 import directional_derivatives_interp as ddi
 import directional_derivatives_grid as ddg
 import warnings
-from euler import *
+from euler import euler
+from policy import policy
 import itertools
 
-def euler_step(G,dx,solution_tol=1e-4,max_iters=1e5,method='grid'):
+def euler_step(G,dx,method='grid',solution_tol=1e-4,max_iters=1e5):
     """
     euler_step(g,dx,solution_tol=1e-4,max_iters=1e5) 
     
@@ -55,12 +56,10 @@ def euler_step(G,dx,solution_tol=1e-4,max_iters=1e5,method='grid'):
     return U, iters, diff
 
 
-def policy(G,dx,solution_tol=1e-4,max_iters=1e5,
-           euler_tol=1e-3, max_euler_iters=15,method='grid'):
+def policy_iteration(G,dx,method='grid',**kwargs):
     """
-    policy(g,dx,solution_tol=1e-4,max_iters=1e5,
-               euler_tol=1e-3, max_euler_iters=15,
-               method='grid')
+    policy(g,dx,method='grid',solution_tol=1e-4,max_iters=1e5,
+               euler_tol=1e-3, max_euler_iters=15)
     
     Find the convex envelope of g, in 2D. The solution is calculated by
     using policy iteration to solve the the obstacle problem
@@ -73,17 +72,17 @@ def policy(G,dx,solution_tol=1e-4,max_iters=1e5,
         A 2D array of the function g.
     dx : scalar
         dx is the uniform grid spacing.
+    method : string
+        Specify the monotone finite difference method.  Either 'grid' or 'interpolate'.
     solution_tol : scalar
         Stopping criterion for difference between succesive iterates.
     max_iters : int
-        Maximum number of iterations.
+        Maximum number of iterations - the sum of Euler step iterations.
     euler_tol : scalar
         Tolerance for solving the sub-problem
             (1) max(-Dvv[u], u-g)=0 
-    max_euler_iterations : int
+    max_euler_iters : int
         Maximum number of iterations to solve (1) with Euler step.
-    method : string
-        Specify the monotone finite difference method.  Either 'grid' or 'interpolate'.
 
     Returns
     -------
@@ -98,43 +97,27 @@ def policy(G,dx,solution_tol=1e-4,max_iters=1e5,
     """
     dt = 1/2*dx ** 2  #time step, from CFL condition
     U = G.copy()
-    iters = 0
     
-    def getF(policy):
-        if method=="interpolate":
+    if method=="interpolate":
+        def getF(policy):
             def F(W):
                 Uvv = ddi.d2(W,policy,dx)
                 return np.minimum(Uvv, G[1:-1,1:-1] - W[1:-1,1:-1])
-        elif method=="grid":
+            return F
+    elif method=="grid":
+        def getF(policy):
             def F(W):
                 Uvv = ddg.d2(W,ddg.stencil,dx,policy)
                 return np.minimum(Uvv, G[1:-1,1:-1] - W[1:-1,1:-1])
-        return F
+            return F
 
-    def getPolicy(U):
-        if method=="interpolate":
+    if method=="interpolate":
+        def getPolicy(U):
             return ddi.d2min(U,dx)[1]
-        elif method=="grid":
+    elif method=="grid":
+        def getPolicy(U):
             return ddg.d2min(U,dx)[1]
 
-    Pol = getPolicy(U) # initialize policy 
-
-    for i in itertools.count(1):
-        F = getF(Pol)
-
-        U, euler_iters, solution_diff = euler(U,F,dt,
-                                               solution_tol = euler_tol, max_iters=max_euler_iters)
-
-        Pol_old = getPolicy(U)
-        policy_diff = np.amax(np.abs(Pol - Pol_old))
-        Pol = Pol_old
-
-        iters = iters+euler_iters
-
-        if iters >= max_iters:
-            warnings.warn("Maximum iterations reached")
-            break
-        elif solution_diff < solution_tol:
-            break
+    U, iters, solution_diff, policy_diff = policy(U,getF,getPolicy,dt,**kwargs)
 
     return U, iters, solution_diff, policy_diff
