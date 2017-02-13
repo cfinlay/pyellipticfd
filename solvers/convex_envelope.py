@@ -6,9 +6,9 @@ from euler import euler
 from policy import policy
 import itertools
 
-def euler_step(G,dx,method='grid',solution_tol=1e-4,max_iters=1e5):
+def euler_step(G,dx,method='grid',**kwargs):
     """
-    euler_step(g,dx,solution_tol=1e-4,max_iters=1e5) 
+    euler_step(g,dx,method='grid',solution_tol=1e-4,max_iters=1e5) 
     
     Find the convex envelope of g, in 2D. The solution is calculated by
     iterating Euler steps to solve the the obstacle problem
@@ -19,14 +19,15 @@ def euler_step(G,dx,method='grid',solution_tol=1e-4,max_iters=1e5):
     ----------
     g : array_like
         A 2D array of the function g.
-    dx : scalar        dx is the uniform grid spacing.
+    dx : scalar        
+        dx is the uniform grid spacing.
+    method : string
+        Specify the monotone finite difference method of computing the minimum
+        eigenvalue.  Either 'grid' or 'interpolate'.
     solution_tol : scalar
         Stopping criterion.
     max_iters : int
         Maximum number of iterations.
-    method : string
-        Specify the monotone finite difference method of computing the minimum
-        eigenvalue.  Either 'grid' or 'interpolate'.
 
     Returns
     -------
@@ -49,11 +50,7 @@ def euler_step(G,dx,method='grid',solution_tol=1e-4,max_iters=1e5):
             lambda_1 = ddg.d2min(W,dx)[0]
             return np.minimum(lambda_1, G[1:-1,1:-1] - W[1:-1,1:-1])
 
-    U, iters, diff = euler(U,F,dt,solution_tol=solution_tol,max_iters=max_iters)
-
-    if iters >= max_iters:
-        warnings.warn("Maximum iterations reached")
-    return U, iters, diff
+    return euler(U,F,dt,**kwargs)
 
 
 def policy_iteration(G,dx,method='grid',**kwargs):
@@ -118,6 +115,4 @@ def policy_iteration(G,dx,method='grid',**kwargs):
         def getPolicy(U):
             return ddg.d2min(U,dx)[1]
 
-    U, iters, solution_diff, policy_diff = policy(U,getF,getPolicy,dt,**kwargs)
-
-    return U, iters, solution_diff, policy_diff
+    return policy(U,getF,getPolicy,dt,**kwargs)
