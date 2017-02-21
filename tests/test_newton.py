@@ -33,22 +33,27 @@ Nint = N-2*Nx-2*(Ny-2)
 
 stencil = ddg.stencil
 U = np.copy(G)
-lambda1, Ix = ddg.d2min(U,dx)
 
-M = fdm.d2(G.shape, stencil, dx, Ix,boundary=True)
+def operator(U):
+    lambda1, Ix = ddg.d2min(U,dx)
 
-b  = np.zeros(shape,dtype=bool)
-b_int = -lambda1 > U[1:-1,1:-1]-G[1:-1,1:-1]
-b[1:-1,1:-1] = b_int
-Fu = U-G
-Fu_int = Fu[1:-1,1:-1]
-Fu_int[b_int] = -lambda1[b_int]
+    M = fdm.d2(G.shape, stencil, dx, Ix)
 
-b = np.reshape(b,N)
-Fu = np.reshape(Fu,N)
+    b = -lambda1 > U[1:-1,1:-1]-G[1:-1,1:-1]
+    Fu = U[1:-1,1:-1]-G[1:-1,1:-1]
+    Fu[b] = -lambda1[b]
 
+    b = np.reshape(b,(Nx-2)*(Ny-2))
+    Fu = np.reshape(Fu,(Nx-2)*(Ny-2))
 
-Grad = sparse.eye(N).tolil()
-Grad[b,:] = M[b,:]
-Grad = Grad.tocsr()
-#d = spsolve(Grad,-Fu)
+    ix_int = fdm.domain_indices(shape,1)[0]
+    Grad = sparse.eye(N).tolil()
+    Grad = Grad[ix_int,:]
+    Grad[b,:] = -M[b,:]
+    Grad = Grad[:,ix_int]
+    Grad = Grad.tocsr()
+
+    return Fu, Grad
+
+Fu, Grad = operator(U)
+d = spsolve(Grad,-Fu)
