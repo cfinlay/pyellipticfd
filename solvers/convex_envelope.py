@@ -8,18 +8,18 @@ import itertools
 
 def euler_step(G,dx,method='grid',**kwargs):
     """
-    euler_step(g,dx,method='grid',solution_tol=1e-4,max_iters=1e5) 
-    
+    euler_step(g,dx,method='grid',solution_tol=1e-4,max_iters=1e5)
+
     Find the convex envelope of g, in 2D. The solution is calculated by
     iterating Euler steps to solve the the obstacle problem
         max(-lambda1[u],u-g) = 0
     where lambda1 is the minimum eigenvalue of the Hessian.
-    
+
     Parameters
     ----------
     g : array_like
         A 2D array of the function g.
-    dx : scalar        
+    dx : scalar
         dx is the uniform grid spacing.
     method : string
         Specify the monotone finite difference method of computing the minimum
@@ -57,12 +57,12 @@ def policy_iteration(G,dx,method='grid',**kwargs):
     """
     policy(g,dx,method='grid',solution_tol=1e-4,max_iters=1e5,
                euler_tol=1e-3, max_euler_iters=15)
-    
+
     Find the convex envelope of g, in 2D. The solution is calculated by
     using policy iteration to solve the the obstacle problem
         max(-lambda1[u],u-g) = 0
     where lambda1 is the minimum eigenvalue of the Hessian.
-    
+
     Parameters
     ----------
     g : array_like
@@ -77,7 +77,7 @@ def policy_iteration(G,dx,method='grid',**kwargs):
         Maximum number of iterations - the sum of Euler step iterations.
     euler_tol : scalar
         Tolerance for solving the sub-problem
-            (1) max(-Dvv[u], u-g)=0 
+            (1) max(-Dvv[u], u-g)=0
     max_euler_iters : int
         Maximum number of iterations to solve (1) with Euler step.
 
@@ -94,7 +94,7 @@ def policy_iteration(G,dx,method='grid',**kwargs):
     """
     dt = 1/2*dx ** 2  #time step, from CFL condition
     U = G.copy()
-    
+
     if method=="interpolate":
         def getF(policy):
             def F(W):

@@ -11,9 +11,6 @@ stencil = np.array([[0,1],
 
 def d2(U,stencil,dx,ix=np.array([0])):
     """
-    d2(U,v,dx)
-    d2(U,stencil,dx,stencil_index)
-
     Returns second derivative in the direction v using a centered difference.
     """
     Nx, Ny = U.shape
@@ -27,11 +24,11 @@ def d2(U,stencil,dx,ix=np.array([0])):
         norm_v = np.linalg.norm(v)  #length of the vector
 
         #recover interior index appropriate for stencil of width w
-        ind_x = np.arange(w,Nx-w,dtype = np.intp) 
+        ind_x = np.arange(w,Nx-w,dtype = np.intp)
         ind_y = np.arange(w,Ny-w,dtype = np.intp)
 
         c = np.ix_(ind_x,ind_y)              #center index
-        f = np.ix_(ind_x-v[0],ind_y-v[1])    #forward 
+        f = np.ix_(ind_x-v[0],ind_y-v[1])    #forward
         b = np.ix_(ind_x+v[0],ind_y+v[1])    #backward
 
         uvv = U[f] + U[b] - 2 * U[c]
@@ -52,16 +49,14 @@ def d2(U,stencil,dx,ix=np.array([0])):
 
         return (-2*C + F + B)/(dx**2 * normv2)
 
-        
 
-    
+
+
 def d1abs(U,v,dx):
     """
-    d1abs(U,v,dx)
-
     Returns (absolute) directional directive in direction v using
-    forward/backward differences. 
-    
+    forward/backward differences.
+
     Caution: this difference is not monotone!
     """
     Nx, Ny = U.shape
@@ -69,11 +64,11 @@ def d1abs(U,v,dx):
     norm_v = np.linalg.norm(v)  #length of the vector
 
     #recover interior index appropriate for stencil of width w
-    ind_x = np.arange(w,Nx-w,dtype = np.intp) 
+    ind_x = np.arange(w,Nx-w,dtype = np.intp)
     ind_y = np.arange(w,Ny-w,dtype = np.intp)
 
     c = np.ix_(ind_x,ind_y)              #center index
-    f = np.ix_(ind_x-v[0],ind_y-v[1])    #forward 
+    f = np.ix_(ind_x-v[0],ind_y-v[1])    #forward
     b = np.ix_(ind_x+v[0],ind_y+v[1])    #backward
 
     uv = np.maximum(U[f],U[b]) - U[c]
@@ -82,10 +77,8 @@ def d1abs(U,v,dx):
 
 def d2eigs(U,dx,stencil=stencil,eigs="both"):
     """
-    d2eigs(U,dx,stencil=default_stencil,eigs="both") 
-    
     Compute the maximum and minimum eigenvalues of the Hessian of U.
-    
+
     Parameters
     ----------
     u : array_like
@@ -106,7 +99,7 @@ def d2eigs(U,dx,stencil=stencil,eigs="both"):
     """
     Nx, Ny = U.shape
 
-    widths = np.abs(stencil).max(1)    
+    widths = np.abs(stencil).max(1)
 
     # Assume first vector in stencil has width 1
     # TODO: otherwise throw Exception
@@ -143,20 +136,16 @@ def d2eigs(U,dx,stencil=stencil,eigs="both"):
     elif eigs=="max":
         return lambda_max, ix_max
 
-def d2min(U,dx,stencil=stencil):
+def d2min(U,dx,**kwargs):
     """
-    d2min(u,dx,stencil=default_stencil) 
-    
     Compute the minimum eigenvalues of the Hessian of U.
     Equivalent to calling d2eigs(u,dx,eigs="min")
     """
-    return d2eigs(U,dx,stencil,eigs="min")
+    return d2eigs(U,dx,eigs="min",**kwargs)
 
-def d2max(U,dx,stencil=stencil):
+def d2max(U,dx,**kwargs):
     """
-    d2max(u,dx,stencil=default_stencil) 
-    
     Compute the maximum eigenvalues of the Hessian of U.
     Equivalent to calling d2eigs(u,dx,eigs="max")
     """
-    return d2eigs(U,dx,stencil,eigs="max")
+    return d2eigs(U,dx,eigs="max",**kwargs)
