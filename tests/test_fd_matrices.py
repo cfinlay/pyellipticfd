@@ -16,3 +16,4 @@ stencil = np.array([[1,0],
 shape = (Nx,Ny)
 
 D2 = fdm.d2(shape, stencil, dx) 
+D1 = fdm.d1(shape, stencil, dx) 
