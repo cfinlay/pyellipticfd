@@ -1,15 +1,15 @@
 import numpy as np
+import scipy.sparse as sparse
+
 import directional_derivatives_interp as ddi
 import directional_derivatives_grid as ddg
-import warnings
+import finite_difference_matrices as fdm
 from euler import euler
 from policy import policy
-import itertools
+from newton import newton
 
 def euler_step(G,dx,method='grid',**kwargs):
     """
-    euler_step(g,dx,method='grid',solution_tol=1e-4,max_iters=1e5)
-
     Find the convex envelope of g, in 2D. The solution is calculated by
     iterating Euler steps to solve the the obstacle problem
         max(-lambda1[u],u-g) = 0
@@ -55,9 +55,6 @@ def euler_step(G,dx,method='grid',**kwargs):
 
 def policy_iteration(G,dx,method='grid',**kwargs):
     """
-    policy(g,dx,method='grid',solution_tol=1e-4,max_iters=1e5,
-               euler_tol=1e-3, max_euler_iters=15)
-
     Find the convex envelope of g, in 2D. The solution is calculated by
     using policy iteration to solve the the obstacle problem
         max(-lambda1[u],u-g) = 0
@@ -116,3 +113,60 @@ def policy_iteration(G,dx,method='grid',**kwargs):
             return ddg.d2min(U,dx)[1]
 
     return policy(U,getF,getPolicy,dt,**kwargs)
+
+def newton_method(G,dx,**kwargs):
+    """
+    Find the convex envelope of g, in 2D. The solution is calculated by
+    semismooth Newton's method to solve the the obstacle problem
+        max(-lambda1[u],u-g) = 0
+    where lambda1 is the minimum eigenvalue of the Hessian.
+
+    Parameters
+    ----------
+    G : array_like
+        A 2D array of the function g.
+    dx : scalar
+        dx is the uniform grid spacing.
+    solution_tol : scalar
+        Stopping criterion.
+    max_iters : int
+        Maximum number of iterations.
+
+    Returns
+    -------
+    u : array_like
+        The convex envelope.
+    iters: scalar
+        Number of iterations.
+    diff: scalar
+        Maximum absolute difference between the solution and the previous iterate.
+    """
+    shape = G.shape
+    Nx = shape[0]
+    Ny = shape[1]
+    N = np.prod(shape)
+
+
+    def operator(U):
+        lambda1, Ix = ddg.d2min(U,dx)
+
+        M = fdm.d2(U.shape, ddg.stencil, dx, Ix)
+
+        b = -lambda1 > U[1:-1,1:-1]-G[1:-1,1:-1]
+        Fu = U[1:-1,1:-1]-G[1:-1,1:-1]
+        Fu[b] = -lambda1[b]
+
+        b = np.reshape(b,(Nx-2)*(Ny-2))
+        Fu = np.reshape(Fu,(Nx-2)*(Ny-2))
+
+        ix_int = fdm.domain_indices(shape,1)[0]
+        Grad = sparse.eye(N).tolil()
+        Grad = Grad[ix_int,:]
+        Grad[b,:] = -M[b,:]
+        Grad = Grad[:,ix_int]
+        Grad = Grad.tocsr()
+
+        return Fu, Grad
+
+    U = G.copy()
+    return newton(U,operator,**kwargs)

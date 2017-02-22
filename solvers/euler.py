@@ -4,8 +4,6 @@ import warnings
 
 def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5):
     """
-    euler(U0,F,CFL,solution_tol=1e-4,max_iters=1e5)
-    
     Solve F[U] = 0 by iterating Euler steps until the
     stopping criteria |U^n+1 - U^n| < solution_tol.
 
