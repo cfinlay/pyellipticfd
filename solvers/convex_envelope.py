@@ -160,11 +160,10 @@ def newton_method(G,dx,**kwargs):
         Fu = np.reshape(Fu,(Nx-2)*(Ny-2))
 
         ix_int = fdm.domain_indices(shape,1)[0]
-        Grad = sparse.eye(N).tolil()
+        Grad = sparse.eye(N,format='csr')
         Grad = Grad[ix_int,:]
         Grad[b,:] = -M[b,:]
         Grad = Grad[:,ix_int]
-        Grad = Grad.tocsr()
 
         return Fu, Grad
 

@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 
 from context import solvers, utils
 from utils import plot_utils
@@ -20,4 +21,6 @@ b = (1/3,2/3)
 G = abs(np.minimum(np.sqrt((X+a[0])**2+(Y+a[1])**2),
                    np.sqrt((X+b[0])**2+(Y+b[1])**2)))
 
+st = time.time()
 Newton = ce.newton_method(G,dx)
+t = time.time() - st
