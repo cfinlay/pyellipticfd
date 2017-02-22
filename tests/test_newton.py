@@ -2,11 +2,13 @@ from context import solvers, utils
 from utils import plot_utils
 import matplotlib.pyplot as plt
 
+import itertools
 import numpy as np
 from solvers import finite_difference_matrices as fdm
 from solvers import directional_derivatives_grid as ddg
 import scipy.sparse as sparse
 from scipy.sparse.linalg import spsolve
+import warnings
 
 
 # Set up computational domain
@@ -29,15 +31,13 @@ shape = (Nx,Nx)
 Nx = shape[0]
 Ny = shape[1]
 N = np.prod(shape)
-Nint = N-2*Nx-2*(Ny-2)
 
 stencil = ddg.stencil
-U = np.copy(G)
 
 def operator(U):
     lambda1, Ix = ddg.d2min(U,dx)
 
-    M = fdm.d2(G.shape, stencil, dx, Ix)
+    M = fdm.d2(U.shape, stencil, dx, Ix)
 
     b = -lambda1 > U[1:-1,1:-1]-G[1:-1,1:-1]
     Fu = U[1:-1,1:-1]-G[1:-1,1:-1]
@@ -55,5 +55,22 @@ def operator(U):
 
     return Fu, Grad
 
-Fu, Grad = operator(U)
-d = spsolve(Grad,-Fu)
+def newton(U0,operator,solution_tol=1e-4,max_iters=1e2):
+    U = np.copy(U0)
+    Nx, Ny = U0.shape
+
+    for i in itertools.count(1):
+        Fu, Grad = operator(U)
+        d = spsolve(Grad,-Fu)
+        U_interior = U[1:-1,1:-1] + np.reshape(d,(Nx-2,Ny-2))
+
+        diff = np.amax(np.absolute(U[1:-1,1:-1] - U_interior))
+        U[1:-1,1:-1] = U_interior
+
+        if diff < solution_tol:
+            return U, i, diff
+        elif i >= max_iters:
+            warnings.warn("Maximum iterations reached")
+            return U, i, diff
+
+U = newton(G,operator,max_iters=50)
