@@ -1,8 +1,9 @@
 import numpy as np
 import itertools
 import warnings
+import time
 
-def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5):
+def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5,timeout=None):
     """
     Solve F[U] = 0 by iterating Euler steps until the
     stopping criteria |U^n+1 - U^n| < solution_tol.
@@ -31,6 +32,9 @@ def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5):
         The maximum absolute difference between the solution
         and the previous iterate.
     """
+    if not timeout is None:
+        timeout = time.time()+timeout
+
     for i in itertools.count(1):
         U_new = U - CFL * F(U)
 
@@ -42,3 +46,7 @@ def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5):
         elif i >= max_iters:
             warnings.warn("Maximum iterations reached")
             return U, i, diff
+        elif (not timeout is None) and (time.time() > timeout):
+            warnings.warn("Maximum computation time reached")
+            return U, i, diff
+

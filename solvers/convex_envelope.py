@@ -153,7 +153,7 @@ def newton_method(G,dx,**kwargs):
     ix_int = np.ravel_multi_index((I[1:-1,1:-1],J[1:-1,1:-1]),G.shape)
     ix_int = np.reshape(ix_int,ix_int.size)
 
-    def operator(U):
+    def operator(U,getGrad=True):
         lambda1, Ix = ddg.d2min(U,dx)
 
         M = fdm.d2(G.shape, ddg.stencil, dx, Ix)
@@ -162,15 +162,19 @@ def newton_method(G,dx,**kwargs):
         Fu_int = Fu[1:-1,1:-1]
         b = -lambda1 > Fu_int
         Fu_int[b] = -lambda1[b]
-        Fu = Fu.reshape(Fu.size)
 
-        b = np.reshape(b,b.size)
-        Grad = sparse.eye(G.size,format='csr')
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore") #suppress stupid warning
-            Grad[ix_int[b],:] = -M[b,:]
+        if getGrad:
+            Fu = Fu.reshape(Fu.size)
+            b = np.reshape(b,b.size)
 
-        return Fu, Grad
+            Grad = sparse.eye(G.size,format='csr')
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore") #suppress stupid warning
+                Grad[ix_int[b],:] = -M[b,:]
+
+            return Fu, Grad
+        else:
+            return Fu
 
     U = G.copy()
-    return newton(U,operator,**kwargs)
+    return newton(U,operator,1/2*dx**2,**kwargs)
