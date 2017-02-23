@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.sparse as sparse
+import warnings
 
 import directional_derivatives_interp as ddi
 import directional_derivatives_grid as ddg
@@ -44,11 +45,15 @@ def euler_step(G,dx,method='grid',**kwargs):
     if method=="interpolate":
         def F(W):
             lambda_1 = ddi.d2min(W,dx)[0]
-            return np.minimum(lambda_1, G[1:-1,1:-1] - W[1:-1,1:-1])
+            Fw = W - G
+            Fw[1:-1,1:-1] = np.maximum(-lambda_1, Fw[1:-1,1:-1])
+            return Fw
     elif method=="grid":
         def F(W):
             lambda_1 = ddg.d2min(W,dx)[0]
-            return np.minimum(lambda_1, G[1:-1,1:-1] - W[1:-1,1:-1])
+            Fw = W - G
+            Fw[1:-1,1:-1] = np.maximum(-lambda_1, Fw[1:-1,1:-1])
+            return Fw
 
     return euler(U,F,dt,**kwargs)
 
@@ -89,20 +94,21 @@ def policy_iteration(G,dx,method='grid',**kwargs):
     policy_diff: scalar
         Maximum absolute difference between the optimal policy and the previous iterate.
     """
-    dt = 1/2*dx ** 2  #time step, from CFL condition
-    U = G.copy()
-
     if method=="interpolate":
         def getF(policy):
             def F(W):
-                Uvv = ddi.d2(W,policy,dx)
-                return np.minimum(Uvv, G[1:-1,1:-1] - W[1:-1,1:-1])
+                Wvv = ddi.d2(W,policy,dx)
+                Fw = W - G
+                Fw[1:-1,1:-1]= np.maximum(-Wvv, Fw[1:-1,1:-1])
+                return Fw
             return F
     elif method=="grid":
         def getF(policy):
             def F(W):
-                Uvv = ddg.d2(W,ddg.stencil,dx,policy)
-                return np.minimum(Uvv, G[1:-1,1:-1] - W[1:-1,1:-1])
+                Wvv = ddg.d2(W,ddg.stencil,dx,ix=policy)
+                Fw = W - G
+                Fw[1:-1,1:-1]= np.maximum(-Wvv, Fw[1:-1,1:-1])
+                return Fw
             return F
 
     if method=="interpolate":
@@ -112,6 +118,8 @@ def policy_iteration(G,dx,method='grid',**kwargs):
         def getPolicy(U):
             return ddg.d2min(U,dx)[1]
 
+    dt = 1/2*dx ** 2  #time step, from CFL condition
+    U = G.copy()
     return policy(U,getF,getPolicy,dt,**kwargs)
 
 def newton_method(G,dx,**kwargs):
@@ -141,29 +149,26 @@ def newton_method(G,dx,**kwargs):
     diff: scalar
         Maximum absolute difference between the solution and the previous iterate.
     """
-    shape = G.shape
-    Nx = shape[0]
-    Ny = shape[1]
-    N = np.prod(shape)
-
+    I,J = np.indices(G.shape)
+    ix_int = np.ravel_multi_index((I[1:-1,1:-1],J[1:-1,1:-1]),G.shape)
+    ix_int = np.reshape(ix_int,ix_int.size)
 
     def operator(U):
         lambda1, Ix = ddg.d2min(U,dx)
 
-        M = fdm.d2(U.shape, ddg.stencil, dx, Ix)
+        M = fdm.d2(G.shape, ddg.stencil, dx, Ix)
 
-        b = -lambda1 > U[1:-1,1:-1]-G[1:-1,1:-1]
-        Fu = U[1:-1,1:-1]-G[1:-1,1:-1]
-        Fu[b] = -lambda1[b]
+        Fu = U-G
+        Fu_int = Fu[1:-1,1:-1]
+        b = -lambda1 > Fu_int
+        Fu_int[b] = -lambda1[b]
+        Fu = Fu.reshape(Fu.size)
 
-        b = np.reshape(b,(Nx-2)*(Ny-2))
-        Fu = np.reshape(Fu,(Nx-2)*(Ny-2))
-
-        ix_int = fdm.domain_indices(shape,1)[0]
-        Grad = sparse.eye(N,format='csr')
-        Grad = Grad[ix_int,:]
-        Grad[b,:] = -M[b,:]
-        Grad = Grad[:,ix_int]
+        b = np.reshape(b,b.size)
+        Grad = sparse.eye(G.size,format='csr')
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore") #suppress stupid warning
+            Grad[ix_int[b],:] = -M[b,:]
 
         return Fu, Grad
 

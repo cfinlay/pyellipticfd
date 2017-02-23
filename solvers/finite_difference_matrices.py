@@ -2,29 +2,7 @@ import numpy as np
 import scipy.sparse as sparse
 import itertools
 
-def domain_indices(shape,w):
-    """
-    Return the interior and exterior unzipped indices on a domain with boundary width w.
-    """
-    N = np.prod(shape)
-    Nx = shape[0]
-    Ny = shape[1]
-
-    I, J = np.indices(shape)
-    I = np.reshape(I,N)
-    J = np.reshape(J,N)
-    Ix = I*Ny+J
-    Interior = np.logical_and(I >= w,
-                    np.logical_and(I < Nx-w,
-                        np.logical_and(J >=  w, J < Ny-w)))
-    Ix_interior = Ix[Interior]
-    Exterior = np.logical_not(Interior)
-    Ix_exterior = Ix[Exterior]
-
-    return Ix_interior, Ix_exterior
-
-
-def d2(shape,stencil,dx,ix=None, boundary=False):
+def d2(shape,stencil,dx,ix=None):
     """
     If no stencil indices are given, return a tuple of second order
     directional derivative finite difference matrices for each stencil vector.
@@ -35,6 +13,8 @@ def d2(shape,stencil,dx,ix=None, boundary=False):
     Nx = shape[0]
     Ny = shape[1]
     N = Nx*Ny
+
+    I,J = np.indices(shape)
 
     if ix is None:
         Matrices = []
@@ -47,7 +27,8 @@ def d2(shape,stencil,dx,ix=None, boundary=False):
 
             shift = v[1] + Ny*v[0]
 
-            Ix_interior = domain_indices(shape,w)[0]
+            Ix_interior = np.ravel_multi_index((I[w:-w,w:-w],J[w:-w,w:-w]),shape)
+            Ix_interior = Ix_interior.reshape(Ix_interior.size)
 
 
             R = np.tile(np.arange(Nint),3)
@@ -71,25 +52,19 @@ def d2(shape,stencil,dx,ix=None, boundary=False):
 
         shift = v[:,1] + Ny*v[:,0]
 
-        Ix_interior, Ix_exterior = domain_indices(shape,w)
+        Ix_interior = np.ravel_multi_index((I[w:-w,w:-w],J[w:-w,w:-w]),shape)
+        Ix_interior = Ix_interior.reshape(Ix_interior.size)
 
-        if not boundary:
-            R = np.tile(np.arange(Nint),3)
-            C = np.concatenate([Ix_interior-shift, Ix_interior, Ix_interior+shift])
+        R = np.tile(np.arange(Nint),3)
+        C = np.concatenate([Ix_interior-shift, Ix_interior, Ix_interior+shift])
 
-            L = sparse.coo_matrix((vals,(R,C)),shape=(Nint,N))
-        else:
-            R = np.concatenate([np.tile(np.arange(Nint),3),np.arange(Nint,N)])
-            C = np.concatenate([Ix_interior-shift, Ix_interior, Ix_interior+shift, Ix_exterior])
-
-            L = sparse.coo_matrix((np.concatenate([vals,np.ones(N-Nint)]),
-                                  (R,C)),shape=(N,N))
+        L = sparse.coo_matrix((vals,(R,C)),shape=(Nint,N))
 
         return L.tocsr()
 
 
 
-def d1(shape,stencil,dx,ix=None, boundary=False):
+def d1(shape,stencil,dx,ix=None):
     """
     If no stencil indices are given, return a tuple of first order
     directional derivative finite difference matrices for each stencil vector.
@@ -112,7 +87,8 @@ def d1(shape,stencil,dx,ix=None, boundary=False):
 
             shift = v[1] + Ny*v[0]
 
-            Ix_interior = domain_indices(shape,w)[0]
+            Ix_interior = np.ravel_multi_index((I[w:-w,w:-w],J[w:-w,w:-w]),shape)
+            Ix_interior = Ix_interior.reshape(Ix_interior.size)
 
 
             R = np.tile(np.arange(Nint),2)
@@ -136,21 +112,11 @@ def d1(shape,stencil,dx,ix=None, boundary=False):
 
         shift = v[:,1] + Ny*v[:,0]
 
-        Ix_interior, Ix_exterior = domain_indices(shape,w)
+        Ix_interior = np.ravel_multi_index((I[w:-w,w:-w],J[w:-w,w:-w]),shape)
+        Ix_interior = Ix_interior.reshape(Ix_interior.size)
 
-        if not boundary:
-            R = np.tile(np.arange(Nint),2)
-            C = np.concatenate([Ix_interior, Ix_interior+shift])
+        R = np.tile(np.arange(Nint),2)
+        C = np.concatenate([Ix_interior, Ix_interior+shift])
 
-            L = sparse.coo_matrix((vals,(R,C)),shape=(Nint,N))
-        else:
-            Exterior = np.logical_not(Interior)
-            Ix_exterior = Ix[Exterior]
-
-            R = np.concatenate([np.tile(np.arange(Nint),2),np.arange(Nint,N)])
-            C = np.concatenate([Ix_interior, Ix_interior+shift, Ix_exterior])
-
-            L = sparse.coo_matrix((np.concatenate([vals,np.ones(N-Nint)]),
-                                  (R,C)),shape=(N,N))
-
+        L = sparse.coo_matrix((vals,(R,C)),shape=(Nint,N))
         return L.tocsr()

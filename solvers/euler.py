@@ -12,13 +12,12 @@ def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5):
     U0 : array_like
         The initial condition.
     F : function
-        An function returning the operator value on the
-        interior of the domain. For example, if U is
-        a m x n array, then F[U] must be (m-2) x (n-2).
+        An function returning the operator value, including poins on the
+        boundary.
     CFL : scalar
-        The maximum time step determined by the CFML condition.
+        The maximum time step determined by the CFL condition.
     solution_tol : scalar
-        Stopping criterion.
+        Stopping criterion, in the infinity norm.
     max_iters : scalar
         Maximum number of iterations.
 
@@ -33,10 +32,10 @@ def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5):
         and the previous iterate.
     """
     for i in itertools.count(1):
-        U_interior = U[1:-1,1:-1] + CFL * F(U)
+        U_new = U - CFL * F(U)
 
-        diff = np.amax(np.absolute(U[1:-1,1:-1] - U_interior))
-        U[1:-1,1:-1] = U_interior
+        diff = np.amax(np.absolute(U - U_new))
+        U = U_new
 
         if diff < solution_tol:
             return U, i, diff
