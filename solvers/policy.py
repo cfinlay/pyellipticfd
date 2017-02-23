@@ -13,7 +13,7 @@ def policy(U,getF,getPolicy,CFL,solution_tol=1e-4,max_iters=1e5,
     stopping criteria |U^n+1 - U^n| < solution_tol.
 
     At each iteration, the policy is fixed, and the current value of U
-    is iterated forward via Euler step with this frozen policy. 
+    is iterated forward via Euler step with this frozen policy.
     The policy is then recalculated and the process begins anew.
 
     Parameters
@@ -49,7 +49,7 @@ def policy(U,getF,getPolicy,CFL,solution_tol=1e-4,max_iters=1e5,
         Maximum absolute difference between the optimal policy and the previous iterate.
     """
 
-    Pol = getPolicy(U) # initialize policy 
+    Pol = getPolicy(U) # initialize policy
 
     iters = 0
     for i in itertools.count(0):
@@ -58,7 +58,7 @@ def policy(U,getF,getPolicy,CFL,solution_tol=1e-4,max_iters=1e5,
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             U, euler_iters, solution_diff = euler(U,F,CFL,
-                                                   solution_tol = euler_tol, 
+                                                   solution_tol = euler_tol,
                                                    max_iters = max_euler_iters)
 
         Pol_old = getPolicy(U)

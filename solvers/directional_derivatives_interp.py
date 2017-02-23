@@ -22,8 +22,6 @@ __nb_pts = np.array([[[1, 0], [1,1]],
 
 def d1da(U,dx,direction="both"):
     """
-    d1da(U,dx,d,direction="both") 
-    
     Calculate descent and ascent directions respectively minimizing and
     maximizing 
         <grad u, p>, st ||p|| = 1.
@@ -130,8 +128,6 @@ def d1da(U,dx,direction="both"):
 
 def d1descent(U,dx):
     """
-    d2descent(u,dx) 
-    
     Compute the minimal value of <grad u, p> st ||p||=1.
     Equivalent to calling d2da(u,dx,direction="descent")
     """
@@ -140,8 +136,6 @@ def d1descent(U,dx):
 
 def d1ascent(U,dx):
     """
-    d2ascent(u,dx) 
-    
     Compute the maximal value of <grad u, p> st ||p||=1.
     Equivalent to calling d2da(u,dx,direction="ascent")
     """
@@ -150,8 +144,6 @@ def d1ascent(U,dx):
 
 def d1(U,theta,dx):
     """
-    d1(u,theta,dx)
-
     Compute the directional derivative of u, in direction 
     v = [cos(theta), sin(theta)].
 
@@ -224,8 +216,6 @@ def d1(U,theta,dx):
 
 def d2(U,theta,dx):
     """
-    d2(u,theta,dx)
-
     Compute the second directional derivative of u, in direction 
     v = [cos(theta), sin(theta)].
 
@@ -293,8 +283,6 @@ def d2(U,theta,dx):
 
 def d2eigs(U,dx,eigs="both"):
     """
-    d2eigs(U,dx,eigs="both") 
-    
     Compute the maximum and minimum eigenvalues of the Hessian of U.
     
     Parameters
@@ -392,8 +380,6 @@ def d2eigs(U,dx,eigs="both"):
 
 def d2min(U,dx):
     """
-    d2min(u,dx) 
-    
     Compute the minimum eigenvalues of the Hessian of U.
     Equivalent to calling d2eigs(u,dx,eigs="min")
     """
@@ -401,8 +387,6 @@ def d2min(U,dx):
 
 def d2max(U,dx):
     """
-    d2max(u,dx) 
-    
     Compute the maximum eigenvalues of the Hessian of U.
     Equivalent to calling d2eigs(u,dx,eigs="max")
     """

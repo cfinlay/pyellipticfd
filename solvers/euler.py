@@ -1,11 +1,10 @@
 import numpy as np
 import itertools
 import warnings
+import time
 
-def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5):
+def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5,timeout=None):
     """
-    euler(U0,F,CFL,solution_tol=1e-4,max_iters=1e5)
-    
     Solve F[U] = 0 by iterating Euler steps until the
     stopping criteria |U^n+1 - U^n| < solution_tol.
 
@@ -14,13 +13,12 @@ def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5):
     U0 : array_like
         The initial condition.
     F : function
-        An function returning the operator value on the
-        interior of the domain. For example, if U is
-        a m x n array, then F[U] must be (m-2) x (n-2).
+        An function returning the operator value, including poins on the
+        boundary.
     CFL : scalar
-        The maximum time step determined by the CFML condition.
+        The maximum time step determined by the CFL condition.
     solution_tol : scalar
-        Stopping criterion.
+        Stopping criterion, in the infinity norm.
     max_iters : scalar
         Maximum number of iterations.
 
@@ -34,14 +32,21 @@ def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5):
         The maximum absolute difference between the solution
         and the previous iterate.
     """
-    for i in itertools.count(1):
-        U_interior = U[1:-1,1:-1] + CFL * F(U)
+    if not timeout is None:
+        timeout = time.time()+timeout
 
-        diff = np.amax(np.absolute(U[1:-1,1:-1] - U_interior))
-        U[1:-1,1:-1] = U_interior
+    for i in itertools.count(1):
+        U_new = U - CFL * F(U)
+
+        diff = np.amax(np.absolute(U - U_new))
+        U = U_new
 
         if diff < solution_tol:
             return U, i, diff
         elif i >= max_iters:
             warnings.warn("Maximum iterations reached")
             return U, i, diff
+        elif (not timeout is None) and (time.time() > timeout):
+            warnings.warn("Maximum computation time reached")
+            return U, i, diff
+
