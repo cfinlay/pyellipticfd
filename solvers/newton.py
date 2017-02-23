@@ -51,7 +51,7 @@ def newton(U,operator,CFL,solution_tol=1e-4,max_iters=1e2):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             U, ei, diff = euler(U, lambda U : operator(U, getGrad=False),
-                                CFL, solution_tol, max_iters=1e3,timeout=NewtonTime)
+                                CFL, solution_tol, max_iters=np.prod(U.shape),timeout=NewtonTime)
 
         if diff < solution_tol:
             return U, i+1, diff
