@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.sparse as sparse
+import itertools
 import warnings
 
 import directional_derivatives_interp as ddi
@@ -8,6 +9,7 @@ import finite_difference_matrices as fdm
 from euler import euler
 from policy import policy
 from newton import newton
+from linesolver import convex_linesolver
 
 def euler_step(G,dx,method='grid',**kwargs):
     """
@@ -178,3 +180,16 @@ def newton_method(G,dx,**kwargs):
 
     U = G.copy()
     return newton(U,operator,1/2*dx**2,**kwargs)
+
+def line_solver(G,stencil,solution_tol=1e-6, max_iters=1e3):
+    U = np.copy(G)
+    for i in itertools.count(1):
+        Uold = U
+        U = convex_linesolver(U,stencil)
+        err = np.max(np.abs(U-Uold))
+
+        if err < solution_tol:
+            return U, i, err
+        elif i >= max_iters:
+            warnings.warn("Maximum iterations reached")
+            return U, i, err
