@@ -35,69 +35,69 @@ Gcvx[t<=0] = np.sqrt((X[t<=0]-A[0])**2 + (Y[t<=0]-A[1])**2)
 Gcvx[t>=1] = np.sqrt((X[t>=1]-B[0])**2 + (Y[t>=1]-B[1])**2)
 
 
-stencil = np.array([[0,1],
-                    [1,0],
-                    [1,2],
-                    [2,1],
-                    [-1,2],
-                    [-2,1]])
-
-times = []
-iters = []
-diff = []
-names = []
-err = []
-
-st = time.time()
-Eul_grid = convex_envelope.euler_step(G,dx, solution_tol=1e-6,method='grid')
-times.append(time.time()-st)
-iters.append(Eul_grid[1])
-diff.append(Eul_grid[2])
-err.append(np.amax(np.abs(Eul_grid[0][1:-1,1:-1]-Gcvx[1:-1,1:-1])))
-names.append('Euler, grid')
-
-st = time.time()
-Eul_intp = convex_envelope.euler_step(G,dx, solution_tol=1e-6,method='interpolate')
-times.append(time.time()-st)
-iters.append(Eul_intp[1])
-diff.append(Eul_intp[2])
-err.append(np.amax(np.abs(Eul_intp[0][1:-1,1:-1]-Gcvx[1:-1,1:-1])))
-names.append('Euler, interp')
-
-st = time.time()
-Pol_grid = convex_envelope.policy_iteration(G,dx,solution_tol=1e-6,max_euler_iters=15,method='grid')
-times.append(time.time()-st)
-iters.append(Pol_grid[1])
-diff.append(Pol_grid[2])
-err.append(np.amax(np.abs(Pol_grid[0][1:-1,1:-1]-Gcvx[1:-1,1:-1])))
-names.append('Policy, grid')
-
-st = time.time()
-Pol_intp = convex_envelope.policy_iteration(G,dx,solution_tol=1e-6,max_euler_iters=15, method='interpolate')
-times.append( time.time()-st)
-iters.append(Pol_intp[1])
-diff.append(Pol_intp[2])
-err.append(np.amax(np.abs(Pol_intp[0][1:-1,1:-1]-Gcvx[1:-1,1:-1])))
-names.append('Policy, interp')
-
-st = time.time()
-Newton = convex_envelope.newton_method(G,dx,solution_tol=1e-6)
-times.append( time.time()-st)
-iters.append(Newton[1])
-diff.append(Newton[2])
-err.append(np.amax(np.abs(Newton[0][1:-1,1:-1]-Gcvx[1:-1,1:-1])))
-names.append('Newton, grid')
-
-st = time.time()
-LineSolver = convex_envelope.line_solver(G,stencil,solution_tol=1e-6)
-times.append( time.time()-st)
-iters.append(LineSolver[1])
-diff.append(LineSolver[2])
-err.append(np.amax(np.abs(LineSolver[0][1:-1,1:-1]-Gcvx[1:-1,1:-1])))
-names.append('Line Solver')
-
-d = {'Method': names, 'Time': times, 'Iters': iters, 'Diff': diff, 'Error': err}
-Stats = pandas.DataFrame(d)
-Stats = Stats[['Method','Time','Iters','Diff','Error']]
-
-print(Stats)
+#stencil = np.array([[0,1],
+#                    [1,0],
+#                    [1,2],
+#                    [2,1],
+#                    [-1,2],
+#                    [-2,1]])
+#
+#times = []
+#iters = []
+#diff = []
+#names = []
+#err = []
+#
+#st = time.time()
+#Eul_grid = convex_envelope.euler_step(G,dx, solution_tol=1e-6,method='grid')
+#times.append(time.time()-st)
+#iters.append(Eul_grid[1])
+#diff.append(Eul_grid[2])
+#err.append(np.amax(np.abs(Eul_grid[0][1:-1,1:-1]-Gcvx[1:-1,1:-1])))
+#names.append('Euler, grid')
+#
+#st = time.time()
+#Eul_intp = convex_envelope.euler_step(G,dx, solution_tol=1e-6,method='interpolate')
+#times.append(time.time()-st)
+#iters.append(Eul_intp[1])
+#diff.append(Eul_intp[2])
+#err.append(np.amax(np.abs(Eul_intp[0][1:-1,1:-1]-Gcvx[1:-1,1:-1])))
+#names.append('Euler, interp')
+#
+#st = time.time()
+#Pol_grid = convex_envelope.policy_iteration(G,dx,solution_tol=1e-6,max_euler_iters=15,method='grid')
+#times.append(time.time()-st)
+#iters.append(Pol_grid[1])
+#diff.append(Pol_grid[2])
+#err.append(np.amax(np.abs(Pol_grid[0][1:-1,1:-1]-Gcvx[1:-1,1:-1])))
+#names.append('Policy, grid')
+#
+#st = time.time()
+#Pol_intp = convex_envelope.policy_iteration(G,dx,solution_tol=1e-6,max_euler_iters=15, method='interpolate')
+#times.append( time.time()-st)
+#iters.append(Pol_intp[1])
+#diff.append(Pol_intp[2])
+#err.append(np.amax(np.abs(Pol_intp[0][1:-1,1:-1]-Gcvx[1:-1,1:-1])))
+#names.append('Policy, interp')
+#
+#st = time.time()
+#Newton = convex_envelope.newton_method(G,dx,solution_tol=1e-6)
+#times.append( time.time()-st)
+#iters.append(Newton[1])
+#diff.append(Newton[2])
+#err.append(np.amax(np.abs(Newton[0][1:-1,1:-1]-Gcvx[1:-1,1:-1])))
+#names.append('Newton, grid')
+#
+#st = time.time()
+#LineSolver = convex_envelope.line_solver(G,stencil,solution_tol=1e-6)
+#times.append( time.time()-st)
+#iters.append(LineSolver[1])
+#diff.append(LineSolver[2])
+#err.append(np.amax(np.abs(LineSolver[0][1:-1,1:-1]-Gcvx[1:-1,1:-1])))
+#names.append('Line Solver')
+#
+#d = {'Method': names, 'Time': times, 'Iters': iters, 'Diff': diff, 'Error': err}
+#Stats = pandas.DataFrame(d)
+#Stats = Stats[['Method','Time','Iters','Diff','Error']]
+#
+#print(Stats)

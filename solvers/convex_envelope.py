@@ -107,7 +107,7 @@ def policy_iteration(G,dx,method='grid',**kwargs):
     elif method=="grid":
         def getF(policy):
             def F(W):
-                Wvv = ddg.d2(W,ddg.stencil,dx,ix=policy)
+                Wvv = ddg.d2(W,dx,ddg.stencil,ix=policy)
                 Fw = W - G
                 Fw[1:-1,1:-1]= np.maximum(-Wvv, Fw[1:-1,1:-1])
                 return Fw
@@ -158,7 +158,7 @@ def newton_method(G,dx,**kwargs):
     def operator(U,getGrad=True):
         lambda1, Ix = ddg.d2min(U,dx)
 
-        M = fdm.d2(G.shape, ddg.stencil, dx, Ix)
+        M = fdm.d2(G.shape, dx, ddg.stencil, Ix)
 
         Fu = U-G
         Fu_int = Fu[1:-1,1:-1]

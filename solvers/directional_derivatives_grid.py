@@ -9,7 +9,7 @@ stencil = np.array([[0,1],
                 [-2,1],
                 [-1,2]], dtype=np.intp)
 
-def d2(U,stencil,dx,ix=np.array([0])):
+def d2(U,dx,stencil,ix=np.array([0])):
     """
     Returns second derivative in the direction v using a centered difference.
     """
@@ -52,7 +52,7 @@ def d2(U,stencil,dx,ix=np.array([0])):
 
 
 
-def d1abs(U,v,dx):
+def d1abs(U,dx,v):
     """
     Returns (absolute) directional directive in direction v using
     forward/backward differences.
