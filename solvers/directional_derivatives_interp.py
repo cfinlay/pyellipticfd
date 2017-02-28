@@ -1,16 +1,12 @@
 import numpy as np
 import itertools
-from scipy.optimize import minimize_scalar as fmin
+from scipy.optimize import minimize as fmin
 
 # Stencil vectors
 stencil = np.array([[  1,  0],
                       [  1,  1],
                       [  0,  1],
-                      [ -1,  1],
-                      [ -1,  0],
-                      [ -1, -1],
-                      [ -1,  0],
-                      [  1, -1]], dtype=np.intp)
+                      [ -1,  1]],dtype=np.intp)
 
 #def d1da(U,dx,direction="both"):
 #    """
@@ -206,7 +202,7 @@ stencil = np.array([[  1,  0],
 #
 #    return DU
 
-def d2(U,dx,stencil=stencil[0:4],control=(np.array([0]),np.array([0]))):
+def d2(U,dx,stencil=stencil,control=(0,0)):
     """
     Compute the second directional derivative of u, in direction
     v = [cos(theta), sin(theta)].
@@ -235,6 +231,7 @@ def d2(U,dx,stencil=stencil[0:4],control=(np.array([0]),np.array([0]))):
 
     ix = control[0]
 
+    # TODO: better way to check these cases
     if not isinstance(ix, (list, np.ndarray)):
         t = control[1]
         if (t>1) or (t<0):
@@ -249,7 +246,6 @@ def d2(U,dx,stencil=stencil[0:4],control=(np.array([0]),np.array([0]))):
 
         v = stencil[ix,:]
         w = stencil[np.mod(ix+1,nvectors),:]
-        print(v.shape)
 
     #recover interior index appropriate for stencil
     width = np.max(np.abs([v,w]))  #width of vector
@@ -274,14 +270,16 @@ def d2(U,dx,stencil=stencil[0:4],control=(np.array([0]),np.array([0]))):
         B = U[I+v[:,:,0],J+v[:,:,1]] + U[I-v[:,:,0],J-v[:,:,1]]
         C = U[I+w[:,:,0],J+w[:,:,1]] + U[I-w[:,:,0],J-w[:,:,1]]
 
-        t_broad = np.broadcast_to(t,(Nx-2*width,Ny-2*width,2))
-        z = (1-t_broad)*v + t_broad*w
+        tstack = np.stack((t,t),axis=-1)
+        z = (1-tstack)*v + tstack*w
         norm_z2 = z[:,:,0]**2 + z[:,:,1]**2
 
     return (-2*A + t*C + (1-t)*B)/(norm_z2 * dx**2)
 
 
-def d2eigs(U,dx,stencil=stencil[0:4],eigs="both"):
+# TODO: -deal with points near boundary
+#       -handle 3x3 stencil separately, using exact convex parameter
+def d2eigs(U,dx,stencil=stencil,eigs="both"):
     """
     Compute the maximum and minimum eigenvalues of the Hessian of U.
 
@@ -310,11 +308,11 @@ def d2eigs(U,dx,stencil=stencil[0:4],eigs="both"):
     nvectors = stencil.shape[0]
 
     if eigs=="both" or eigs=="min":
-        Dvv_max = np.zeros((nvectors,Nx-2*width,Ny-2*width))
-        t_max = np.zeros((nvectors,Nx-2*width,Ny-2*width))
-    if eigs=="both" or eigs=="max":
         Dvv_min = np.zeros((nvectors,Nx-2*width,Ny-2*width))
         t_min = np.zeros((nvectors,Nx-2*width,Ny-2*width))
+    if eigs=="both" or eigs=="max":
+        Dvv_max = np.zeros((nvectors,Nx-2*width,Ny-2*width))
+        t_max = np.zeros((nvectors,Nx-2*width,Ny-2*width))
 
     #Index excluding the boundary
     I = np.arange(width,Nx-width,dtype=np.intp)
@@ -333,27 +331,32 @@ def d2eigs(U,dx,stencil=stencil[0:4],eigs="both"):
         def norm2(t):
             z = (1-t)*v + t*w
             return z[0]**2 + z[1]**2
+
         if eigs=="both" or eigs=="min":
             def mint(a,b,c):
                 OptResult = fmin(lambda t: (-2*a+(1-t)*b + t*c)/norm2(t),
-                                    bounds = (0,1), method = 'bounded')
-                return (OptResult.x, OptResult.fun)
+                                 1/2,
+                                 method='SLSQP',
+                                 bounds= [(0,1)],
+                                 tol=1e-4)
+                return (OptResult.x, OptResult.fun/dx**2)
 
-            vec_mint = np.vectorize(mint)
+            vec_mint = np.vectorize(mint,otypes=[np.float,np.float])
 
             t_min[k,:,:], Dvv_min[k,:,:] = vec_mint(A,B,C)
-            Dvv_min = Dvv_min/dx**2
 
         if eigs=="both" or eigs=="max":
             def maxt(a,b,c):
-                OptResult = fmin(lambda t: -(-2*a+(1-t)*b + t*c)/norm2(t),
-                                    bounds = (0,1), method = 'bounded')
-                return (OptResult.x, -OptResult.fun)
+                OptResult = fmin(lambda t: (2*a+(t-1)*b - t*c)/norm2(t),
+                                 1/2,
+                                 method='SLSQP',
+                                 bounds=[(0,1)],
+                                 tol=1e-4)
+                return (OptResult.x, -OptResult.fun/dx**2)
 
-            vec_maxt = np.vectorize(maxt)
+            vec_maxt = np.vectorize(maxt,otypes=[np.float,np.float])
 
             t_max[k,:,:], Dvv_max[k,:,:] = vec_maxt(A,B,C)
-            Dvv_max = Dvv_max/dx**2
 
     [i,j] = np.indices((Nx-2*width,Ny-2*width))
 

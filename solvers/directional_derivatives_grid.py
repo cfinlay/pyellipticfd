@@ -1,13 +1,9 @@
 import numpy as np
 
-stencil = np.array([[0,1],
-                [1,1],
-                [1,0],
-                [-1,1],
-                [1,2],
-                [2,1],
-                [-2,1],
-                [-1,2]], dtype=np.intp)
+stencil = np.array([[  1,  0],
+                      [  1,  1],
+                      [  0,  1],
+                      [ -1,  1]], dtype=np.intp)
 
 def d2(U,dx,stencil,ix=np.array([0])):
     """
@@ -104,14 +100,14 @@ def d2eigs(U,dx,stencil=stencil,eigs="both"):
     # Assume first vector in stencil has width 1
     # TODO: otherwise throw Exception
     if eigs=="both" or eigs=="min":
-        lambda_min = d2(U,stencil[0],dx)
+        lambda_min = d2(U,dx,stencil[0])
         ix_min = np.zeros(lambda_min.shape, dtype=np.intp)
     if eigs=="both" or eigs=="max":
-        lambda_max = d2(U,stencil[0],dx)
+        lambda_max = d2(U,dx,stencil[0])
         ix_max = np.zeros(lambda_max.shape, dtype=np.intp)
 
     for k, (v, w) in enumerate(zip(stencil[1:], widths[1:]),1):
-        Dvv = d2(U,v,dx)
+        Dvv = d2(U,dx,v)
         if eigs=="both" or eigs=="min":
             l = lambda_min[(w-1):(Nx-1-w),(w-1):(Ny-1-w)]
             subix = ix_min[(w-1):(Nx-1-w),(w-1):(Ny-1-w)]
