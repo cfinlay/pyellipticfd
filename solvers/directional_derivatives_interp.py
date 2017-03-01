@@ -279,6 +279,7 @@ def d2(U,dx,stencil=stencil,control=(0,0)):
 
 # TODO: -deal with points near boundary
 #       -handle 3x3 stencil separately, using exact convex parameter
+#       -solve quadratic for roots of f(t) to get minimizer and maxizer
 def d2eigs(U,dx,stencil=stencil,eigs="both"):
     """
     Compute the maximum and minimum eigenvalues of the Hessian of U.
@@ -314,60 +315,83 @@ def d2eigs(U,dx,stencil=stencil,eigs="both"):
         Dvv_max = np.zeros((nvectors,Nx-2*width,Ny-2*width))
         t_max = np.zeros((nvectors,Nx-2*width,Ny-2*width))
 
-    #Index excluding the boundary
+    #Vector indices excluding the boundary
     I = np.arange(width,Nx-width,dtype=np.intp)
     J = np.arange(width,Ny-width,dtype=np.intp)
 
     A = U[width:-width,width:-width]
 
+    #Block indices, interior only
+    [Iint, Jint] = np.indices(A.shape)
+
+    # TODO: create iterator to get v,w
     for k in range(nvectors):
         v = stencil[k]
         w = stencil[np.mod(k+1,nvectors)]
+
+        vdotw = np.dot(v,w)
+        diff = w-v
+        norm_diff2 = np.dot(diff,diff)
+        norm_v2 = np.dot(v,v)
+
+        # z is the vector defined by the convex combination of v and w
+        def norm_z2(t):
+            z0 = v[0] +t*diff[0]
+            z1 = v[1] + t*diff[1]
+            return z0**2 + z1**2
 
         # Sum of antipodal function values in the stencil
         B = U[np.ix_(I+v[0],J+v[1])] + U[np.ix_(I-v[0],J-v[1])]
         C = U[np.ix_(I+w[0],J+w[1])] + U[np.ix_(I-w[0],J-w[1])]
 
-        def norm2(t):
-            z = (1-t)*v + t*w
-            return z[0]**2 + z[1]**2
+        def D2(t):
+            return (-2*A + (1-t)*B + t*C)/(norm_z2(t)*dx**2)
 
+        t = np.zeros((2,A.shape[0],A.shape[1]))
+
+        a = (B-C)*norm_diff2
+        b = 2*(2*A-B)*norm_diff2
+        c = (C+B-4*A)*norm_v2 + 2*(4*A-B)*vdotw
+
+        delta = b**2-4*a*c
+        ix = np.logical_and(B != C, delta>=0)
+        if ix.any():
+            aix, bix = a[ix], b[ix]
+            sqdelix = np.sqrt(delta[ix])
+
+            t[0,ix] = (-bix-sqdelix)/(2*aix)
+            t[1,ix] = (-bix+sqdelix)/(2*aix)
+
+        ix = np.logical_and(B==C, 2*A!=B)
+        if ix.any():
+            t[0,ix] = -c[ix]/b[ix]
+            t[1,ix] = t[0,ix]
+
+        t[t<0] = 0
+        t[t>1] = 0
+        t = np.concatenate((t, np.stack((np.zeros(A.shape),np.ones(A.shape)))))
+
+        # TODO: remove extra zero from 0-th dimension
+        Dzz = D2(t)
         if eigs=="both" or eigs=="min":
-            def mint(a,b,c):
-                OptResult = fmin(lambda t: (-2*a+(1-t)*b + t*c)/norm2(t),
-                                 1/2,
-                                 method='SLSQP',
-                                 bounds= [(0,1)],
-                                 tol=1e-4)
-                return (OptResult.x, OptResult.fun/dx**2)
-
-            vec_mint = np.vectorize(mint,otypes=[np.float,np.float])
-
-            t_min[k,:,:], Dvv_min[k,:,:] = vec_mint(A,B,C)
+            l_min = Dzz.argmin(0)
+            t_min[k,:,:] = t[l_min,Iint,Jint]
+            Dvv_min[k,:,:] = Dzz[l_min,Iint,Jint]
 
         if eigs=="both" or eigs=="max":
-            def maxt(a,b,c):
-                OptResult = fmin(lambda t: (2*a+(t-1)*b - t*c)/norm2(t),
-                                 1/2,
-                                 method='SLSQP',
-                                 bounds=[(0,1)],
-                                 tol=1e-4)
-                return (OptResult.x, -OptResult.fun/dx**2)
+            l_max = Dzz.argmax(0)
+            t_max[k,:,:] = t[l_max,Iint,Jint]
+            Dvv_max[k,:,:] = Dzz[l_max,Iint,Jint]
 
-            vec_maxt = np.vectorize(maxt,otypes=[np.float,np.float])
-
-            t_max[k,:,:], Dvv_max[k,:,:] = vec_maxt(A,B,C)
-
-    [i,j] = np.indices((Nx-2*width,Ny-2*width))
 
     if eigs=="both":
         kmin = Dvv_min.argmin(0)
-        lambda_min = Dvv_min[kmin,i,j]
-        tmin = t_min[kmin,i,j]
+        lambda_min = Dvv_min[kmin,Iint,Jint]
+        tmin = t_min[kmin,Iint,Jint]
 
         kmax = Dvv_max.argmax(0)
-        lambda_max = Dvv_max[kmax,i,j]
-        tmax = t_max[kmax,i,j]
+        lambda_max = Dvv_max[kmax,Iint,Jint]
+        tmax = t_max[kmax,Iint,Jint]
 
         Lambda = lambda_min, lambda_max
         Control = (kmin, tmin), (kmax, tmax)
@@ -375,14 +399,14 @@ def d2eigs(U,dx,stencil=stencil,eigs="both"):
         return Lambda, Control
     elif eigs=="min":
         kmin = Dvv_min.argmin(0)
-        lambda_min = Dvv_min[kmin,i,j]
-        tmin = t_min[kmin,i,j]
+        lambda_min = Dvv_min[kmin,Iint,Jint]
+        tmin = t_min[kmin,Iint,Jint]
 
         return lambda_min, (kmin, tmin)
     elif eigs=="max":
         kmax = Dvv_max.argmax(0)
-        lambda_max = Dvv_max[kmax,i,j]
-        tmax = t_max[kmax,i,j]
+        lambda_max = Dvv_max[kmax,Iint,Jint]
+        tmax = t_max[kmax,Iint,Jint]
 
         return lambda_max, (kmax, tmax)
 
