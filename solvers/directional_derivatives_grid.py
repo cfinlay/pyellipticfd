@@ -1,5 +1,6 @@
 import numpy as np
 
+#TODO: stencil type should agree with ddi
 stencil = np.array([[  1,  0],
                       [  1,  1],
                       [  0,  1],

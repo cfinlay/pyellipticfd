@@ -3,10 +3,14 @@ import itertools
 from scipy.optimize import minimize as fmin
 
 # Stencil vectors
-stencil = np.array([[  1,  0],
-                      [  1,  1],
-                      [  0,  1],
-                      [ -1,  1]],dtype=np.intp)
+stencil = np.array([[ 1,  0],
+                    [ 1,  1],
+                    [ 0,  1],
+                    [-1,  1],
+                    [-1,  0],
+                    [-1, -1],
+                    [ 0, -1],
+                    [ 1, -1]],dtype=np.intp)
 
 #def d1da(U,dx,direction="both"):
 #    """
@@ -278,8 +282,6 @@ def d2(U,dx,stencil=stencil,control=(0,0)):
 
 
 # TODO: -deal with points near boundary
-#       -handle 3x3 stencil separately, using exact convex parameter
-#       -solve quadratic for roots of f(t) to get minimizer and maxizer
 def d2eigs(U,dx,stencil=stencil,eigs="both"):
     """
     Compute the maximum and minimum eigenvalues of the Hessian of U.
@@ -295,18 +297,18 @@ def d2eigs(U,dx,stencil=stencil,eigs="both"):
 
     Returns
     -------
-    Lambda : a list, or an array
-        If eigs="both", a list containing the minimal and maximal eigenvalues,
+    Lambda : a tuple, or an array
+        If eigs="both", a tuple containing the minimal and maximal eigenvalues,
         with the minimal eigenvalue first.
         If eigs!="both", then an array of the specified eigenvalue.
-    Control : a list, or a tuple of controls
-        If eigs="both", a list containing the controls of the minimal and maximal eigenvalues,
+    Control : a list of controls
+        If eigs="both", a tuple containing the controls of the minimal and maximal eigenvalues,
         minimal eigenvalue first.
-        If eigs!="both", then an list of the control of the specified eigenvalue.
+        If eigs!="both", then the control of the specified eigenvalue.
     """
     Nx, Ny = U.shape
     width = np.abs(stencil).max()
-    nvectors = stencil.shape[0]
+    nvectors = int(stencil.shape[0]/2) #TODO: verify this actually an integer
 
     if eigs=="both" or eigs=="min":
         Dvv_min = np.zeros((nvectors,Nx-2*width,Ny-2*width))
@@ -324,11 +326,7 @@ def d2eigs(U,dx,stencil=stencil,eigs="both"):
     #Block indices, interior only
     [Iint, Jint] = np.indices(A.shape)
 
-    # TODO: create iterator to get v,w
-    for k in range(nvectors):
-        v = stencil[k]
-        w = stencil[np.mod(k+1,nvectors)]
-
+    for k, (v,w) in enumerate(zip(stencil[0:nvectors],stencil[1:(nvectors+1)])):
         vdotw = np.dot(v,w)
         diff = w-v
         norm_diff2 = np.dot(diff,diff)
@@ -347,31 +345,31 @@ def d2eigs(U,dx,stencil=stencil,eigs="both"):
         def D2(t):
             return (-2*A + (1-t)*B + t*C)/(norm_z2(t)*dx**2)
 
-        t = np.zeros((2,A.shape[0],A.shape[1]))
+        tm, tp = np.zeros(A.shape), np.zeros(A.shape)
 
+        #TODO: recheck calculations
         a = (B-C)*norm_diff2
         b = 2*(2*A-B)*norm_diff2
         c = (C+B-4*A)*norm_v2 + 2*(4*A-B)*vdotw
 
         delta = b**2-4*a*c
         ix = np.logical_and(B != C, delta>=0)
+        print(np.array(ix,dtype=np.intp))
         if ix.any():
             aix, bix = a[ix], b[ix]
             sqdelix = np.sqrt(delta[ix])
 
-            t[0,ix] = (-bix-sqdelix)/(2*aix)
-            t[1,ix] = (-bix+sqdelix)/(2*aix)
+            tm[ix], tp[ix] = (-bix-sqdelix)/(2*aix), (-bix+sqdelix)/(2*aix)
 
         ix = np.logical_and(B==C, 2*A!=B)
         if ix.any():
-            t[0,ix] = -c[ix]/b[ix]
-            t[1,ix] = t[0,ix]
+            tm[ix] = -c[ix]/b[ix]
+            tp[ix] = tm[ix]
 
-        t[t<0] = 0
-        t[t>1] = 0
-        t = np.concatenate((t, np.stack((np.zeros(A.shape),np.ones(A.shape)))))
+        tm[np.logical_or(tm<0,tm>1)] = 0
+        tp[np.logical_or(tp<0,tp>1)] = 0
+        t = np.stack((np.zeros(A.shape),tm,tp,np.ones(A.shape)))
 
-        # TODO: remove extra zero from 0-th dimension
         Dzz = D2(t)
         if eigs=="both" or eigs=="min":
             l_min = Dzz.argmin(0)
