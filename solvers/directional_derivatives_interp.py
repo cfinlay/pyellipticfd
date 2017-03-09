@@ -347,14 +347,12 @@ def d2eigs(U,dx,stencil=stencil,eigs="both"):
 
         tm, tp = np.zeros(A.shape), np.zeros(A.shape)
 
-        #TODO: recheck calculations
         a = (B-C)*norm_diff2
         b = 2*(2*A-B)*norm_diff2
-        c = (C+B-4*A)*norm_v2 + 2*(4*A-B)*vdotw
+        c = (C+B-4*A)*norm_v2 + 2*(2*A-B)*vdotw
 
         delta = b**2-4*a*c
         ix = np.logical_and(B != C, delta>=0)
-        print(np.array(ix,dtype=np.intp))
         if ix.any():
             aix, bix = a[ix], b[ix]
             sqdelix = np.sqrt(delta[ix])

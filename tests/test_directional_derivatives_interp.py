@@ -5,6 +5,23 @@ from utils import plot_utils
 
 import numpy as np
 
+stencil = np.array([[ 1,  0],
+                    [ 2,  1],
+                    [ 1,  1],
+                    [ 1,  2],
+                    [ 0,  1],
+                    [-1,  2],
+                    [-1,  1],
+                    [-2,  1],
+                    [-1,  0],
+                    [-2,  1],
+                    [-1, -1],
+                    [-1, -2],
+                    [ 0, -1],
+                    [ 1, -2],
+                    [ 1, -1],
+                    [ 2, -1]], dtype=np.intp)
+
 # Set up computational domain
 Nx = 21                      #grid size
 dx = 2./(Nx-1)               #grid resolution
@@ -20,13 +37,15 @@ U2 = X - Y
 th = np.arctan(1/2)
 C = np.cos(th)
 S = np.sin(th)
-U3 = X**2 * (C**2 - S**2) + 4*C*S*X*Y + Y**2 * (S**2 - C**2)
+Xr = C*X + S*Y
+Yr = C*Y - S*X
+U3 = Xr**2 - Yr**2
 
 #Test on grid
 #Lambda1, Control1 = ddi.d2eigs(U1,dx)
 
 #Test off grid
-Li3, Ci3 = ddi.d2eigs(U3,dx)
+Li3, Ci3 = ddi.d2eigs(U3,dx,stencil=ddi.stencil)
 Lg3, Cg3 = ddg.d2eigs(U3,dx,stencil=ddi.stencil[0:4])
 
 #class TestOnGrid:
