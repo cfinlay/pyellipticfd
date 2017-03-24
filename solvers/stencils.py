@@ -1,29 +1,23 @@
 import numpy as np
-import itertools
+import math
 
 def stern_brocot(N):
     """
     Generate a Stern Brocot tree of depth N.
     """
-    sold = np.array([[1,0],
+    sb_old = np.array([[1,0],
                      [1,1],
                      [0,1]],dtype=np.intp)
 
     if N==1:
-        return sold
+        return sb_old
 
-    n=1
-    while n<N:
-        snew = np.zeros((2*sold.shape[0]-1,2),dtype=np.intp)
-        k = 0
-        for i in range(sold.shape[0]-1):
-            snew[k] = sold[i]
-            snew[k+1] = sold[i] + sold[i+1]
-            k+=2
-        snew[k]=sold[i+1]
-        sold=snew
-        n+=1
-    return snew
+    for n in range(1,N):
+        sb_new = [np.array([v,v+w]) for (v,w) in zip(sb_old[:-1], sb_old[1:])]
+        sb_new.append([sb_old[-1]])
+        sb_old = np.concatenate(sb_new)
+
+    return sb_old
 
 # Stencil vectors
 def create_2d(r):
@@ -38,52 +32,39 @@ def create_2d(r):
                   [1,  0]],dtype=np.intp)
 
 
-    V = stern_brocot(r)[0:-1].T
+    V = stern_brocot(r)[0:-1]
+    V = V[(V<=r).all(1),:].T
 
-    stencils = []
-    for i in range(0,4):
-        stencils.append( (np.linalg.matrix_power(R,i)).dot(V).T)
+    stencils = [np.linalg.matrix_power(R,i).dot(V).T for i in range(0,4)]
 
     return np.concatenate(stencils)
 
-def __gcd(a, b):
-    a, b = np.broadcast_arrays(a, b)
-    a = a.copy()
-    b = b.copy()
-    pos = np.nonzero(b)[0]
-    while len(pos) > 0:
-        b2 = b[pos]
-        a[pos], b[pos] = b2, a[pos] % b2
-        pos = pos[b[pos]!=0]
-    return a
+gcd = np.frompyfunc(math.gcd, 2, 1)
 
-def create_3d(r):
+def create_nd(r,n):
     """
-    Create a 3D stencil with radius r.
+    Create an n dimensional stencil with radius r.
     """
     if r<1:
         raise ValueError('r must be positive')
 
-    stencil = np.zeros(((2*r+1)**3,3),dtype=np.intp)
-    ran = range(-r,r+1)
-    for l,(i,j,k) in enumerate(itertools.product(ran,ran,ran)):
-        stencil[l] = np.array([i,j,k])
+    shape = (2*r+1 for d in range(n))
+    stencil = np.indices(shape)-r
 
+    stencil = stencil.reshape((n,(2*r+1)**n)).T
     stencil = stencil[(stencil != 0).any(axis=1),:]
 
-    gcd_ij = __gcd(stencil[:,0],stencil[:,1])
-    gcd_k = __gcd(gcd_ij,stencil[:,2])
+    g = gcd.reduce(stencil, axis=1)
 
-    stencil= stencil[np.abs(gcd_k)==1,:]
-    return stencil
+    return stencil[g==1,:]
 
 def create(r,d):
     """
     Create a d dimensional stencil with radius r.
     """
-    if d==2:
+    if d<2:
+        raise ValueError('dimension must be two or higher')
+    elif d==2:
         return create_2d(r)
-    elif d==3:
-        return create_3d(r)
     else:
-        raise ValueError('Only dimensions 2 & 3 supported')
+        return create_nd(r,d)
