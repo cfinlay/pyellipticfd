@@ -1,16 +1,13 @@
 from grids import *
+from stencils import *
 import numpy as np
 
-#def main():
-N = 32;
-d = 3;
+N = 2**9 + 1;
+d = 2;
 xi = [0,1]
 
 shape = [N for i in range(d)]
-bounds = np.array([xi for i in range(d)])
-r = 3
+bounds = np.array([xi for i in range(d)]).T
+r = 2
 
 G = Grid(shape,bounds,r)
-
-#if __name__ == '__main__':
-    #main()
