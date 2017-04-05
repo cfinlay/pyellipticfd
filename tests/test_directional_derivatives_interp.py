@@ -1,92 +1,77 @@
 from context import solvers, utils
-from solvers import directional_derivatives_interp as ddi
-from solvers import directional_derivatives_grid as ddg
-from utils import plot_utils
+#from solvers import directional_derivatives_interp as ddi
+#from solvers import directional_derivatives_grid as ddg
+from solvers import gridtools
 
 import numpy as np
 
-stencil = np.array([[ 1,  0],
-                    [ 2,  1],
-                    [ 1,  1],
-                    [ 1,  2],
-                    [ 0,  1],
-                    [-1,  2],
-                    [-1,  1],
-                    [-2,  1],
-                    [-1,  0],
-                    [-2,  1],
-                    [-1, -1],
-                    [-1, -2],
-                    [ 0, -1],
-                    [ 1, -2],
-                    [ 1, -1],
-                    [ 2, -1]], dtype=np.intp)
 
 # Set up computational domain
-Nx = 21                      #grid size
-dx = 2./(Nx-1)               #grid resolution
-x = np.linspace(-1.,1.,num = Nx) #gridpoints in x coordinate
-X, Y = np.meshgrid(x,x,sparse=False,indexing='ij') # create x & y gridpoints, with matrix indexing
-Xint = X[1:-1,1:-1]
-Yint = Y[1:-1,1:-1]
+N = 2**5+1;
+d = 2;
+xi = [0,1]
 
+shape = [N for i in range(d)]
+bounds = np.array([xi for i in range(d)]).T
+r = 2
 
-U1 = X**2 - Y**2
+G = gridtools.uniform_grid(shape,bounds,r)
+X = G.vertices[:,0]
+Y = G.vertices[:,1]
+if d==3:
+    Z = G.vertices[:,2]
+else:
+    Z = 0
+
+U1 = X**2 - Y**2 + Z**2
 U2 = X - Y
 
-th = np.arctan(1/2)
-C = np.cos(th)
-S = np.sin(th)
-Xr = C*X + S*Y
-Yr = C*Y - S*X
-U3 = Xr**2 - Yr**2
+if d==2:
+    th = np.array([np.cos(np.pi/8), np.sin(np.pi/8)])
+else:
+    th = np.array([1/3,1/4,1/7])
+    th /= np.linalg.norm(th)
 
-#Test on grid
-#Lambda1, Control1 = ddi.d2eigs(U1,dx)
+# ------------------
+mask = np.in1d(G.simplices[:,0], G.interior)
+interior_simplices = G.simplices[mask]
 
-#Test off grid
-Li3, Ci3 = ddi.d2eigs(U3,dx,stencil=ddi.stencil)
-Lg3, Cg3 = ddg.d2eigs(U3,dx,stencil=ddi.stencil[0:4])
+I, S = interior_simplices[:,0], interior_simplices[:,1:]
+V = G.vertices[S] - G.vertices[I,None]
+V = np.swapaxes(V,1,2) # transpose last two axis before matrix inversion
 
-#class TestOnGrid:
-#    def test_d2eigs(self):
-#        Lambda,Theta = ddi.d2eigs(U,dx)
-#        assert ((np.abs(Lambda[0]+2)<1e-13).all() and
-#                (np.abs(Lambda[1]-2)<1e-13).all())
-#        assert ((np.abs(Theta[0]-np.pi/2)<1e-13).all() and
-#                (np.abs(Theta[1])<1e-13).all())
-#
-#    def test_d2(self):
-#        Uxx = ddi.d2(U,0,dx)
-#        Uyy = ddi.d2(U,np.pi/2,dx)
-#        assert ((np.abs(Uxx-2) <1e-13).all() and
-#                (np.abs(Uyy+2) <1e-13).all())
-#
-#    def test_d1(self):
-#        Ux = ddi.d1(U2,0,dx)
-#        Uy = ddi.d1(U2,np.pi/2,dx)
-#        U_1_1 = ddi.d1(U2,np.pi*5/4,dx)
-#        U1_1 = ddi.d1(U2,np.pi*7/4,dx)
-#        assert ((np.abs(Ux-1) <1e-13).all() and
-#                (np.abs(Uy+1) <1e-13).all() and
-#                (np.abs(U1_1-np.sqrt(2)) <1e-13).all())
-#    def test_d1da(self):
-#        V, T = ddi.d1da(U2,dx)
-#        assert ((np.abs(V[0]+np.sqrt(2))<1e-13).all() and
-#                (np.abs(V[1]-np.sqrt(2)<1e-13).all()))
-#        assert ((np.abs(T[0] - np.pi*3/4)<1e-13).all() and
-#                (np.abs(T[1] - np.pi*7/4)<1e-13).all())
-#
-#class TestOffGrid:
-#    def test_d2eigs(self):
-#        Lambda,Theta = ddi.d2eigs(U3,dx)
-#        assert ((np.abs(Lambda[0]+2)<.25).all() and
-#                (np.abs(Lambda[1]-2)<.25).all())
-#        assert ((np.abs(Theta[0]-th-np.pi/2)<0.1).all() and
-#                (np.abs(Theta[1]-th)<0.1).all())
-#
-#    def test_d2(self):
-#        Uvv = ddi.d2(U3,th,dx)
-#        Uww = ddi.d2(U3,th+np.pi/2,dx)
-#        assert ((np.abs(Uvv-2) <.25).all() and
-#                (np.abs(Uww+2) <.25).all())
+Xi = np.linalg.solve(V,th[None,:,None]) # coordinates in the cone spanned by stencil vectors
+
+
+def compute_d2(k):
+    mask = interior_simplices[:,0]==k
+    xi = Xi[mask]
+    Vk = V[mask]
+    ix = interior_simplices[mask]
+
+    # Forward direction
+    mask_cone_f = np.squeeze((xi>=0).all(axis=1)) # Farkas' lemma: coordinates must be non-negative
+    V_f = Vk[mask_cone_f][0]
+    xi_f =  xi[mask_cone_f][0]
+    t_f = 1/np.sum(xi_f)
+
+    # Backward direction
+    mask_cone_b = np.squeeze((xi<=0).all(axis=1))
+    V_b = Vk[mask_cone_b][0]
+    xi_b =  xi[mask_cone_b][0]
+    t_b = -1/np.sum(xi_b)
+
+    t = np.min([t_f, t_b])
+
+    xi_f = np.append(1-np.sum(t*xi_f),t*xi_f)
+    xi_b = np.append(1-np.sum(-t*xi_b),-t*xi_b)
+
+    i_f = ix[mask_cone_f][0]
+    i_b = ix[mask_cone_b][0]
+
+    u_f = U1[i_f].dot(xi_f)
+    u_b = U1[i_b].dot(xi_b)
+
+    return (-2*U1[k]+u_f+u_b)/t**2
+
+d2u = np.array([compute_d2(k) for k in G.interior])

@@ -1,150 +1,235 @@
-from collections import defaultdict
+#from collections import defaultdict
 import numpy as np
-import stencils
+from scipy.sparse import coo_matrix
+from scipy.spatial import ConvexHull
 
 
-class FDMesh(object):
-    """A mesh for finite differences."""
-    def __init__(self):
-        self.dim = 0
-        self.vertices = np.empty(shape=(0,0))
-        self.bbox = np.empty(shape=(0,0))
-        self.num_vertices = 0
-        self.interior = np.empty(shape=0,dtype=np.intp)
-        self.num_interior = 0
-        self.boundary = np.empty(shape=0,dtype=np.intp)
-        self.num_boundary = 0
-        self.interior_neighbours = np.empty(shape=(0,0), dtype = np.intp)
-        self.boundary_neighbours = np.empty(shape=(0,0), dtype = np.intp)
+class FDGraph(object):
+    """A graph for finite differences."""
+
+    def __init__(self,vertices,**kwargs):
+        self.vertices = vertices
+
+        self.bbox = np.array([np.amin(self.vertices,0),
+                              np.amax(self.vertices,0)])
+
+        try:
+            get_pairs = kwargs['get_pairs']
+        except KeyError:
+            get_pairs = False
+
+        try:
+            self.radius = kwargs['radius']
+        except KeyError:
+            self.radius = None
+
+        try:
+            colinear_tol = kwargs['colinear_tol']
+        except KeyError:
+            colinear_tol = 1e-4
+
+
+        try:
+            self.interior = kwargs['interior']
+        except KeyError:
+            self.interior = np.empty(shape=0,dtype=np.intp)
+
+        try:
+            self.boundary = kwargs['boundary']
+        except KeyError:
+            self.boundary = np.empty(shape=0,dtype=np.intp)
+
+
+        if not ('edges' in kwargs or 'adjacency' in kwargs or 'neighbours' in kwargs):
+            raise TypeError('One of "adjacency", "edges" or "neighbours" must be provided')
+
+        if ('edges' in kwargs and 'adjacency' in kwargs):
+            raise TypeError('Specify only one of "adjacency", "edges", or "neighbours"')
+
+        if ('edges' in kwargs or 'adjacency' in kwargs) and 'neighbours' in kwargs:
+            raise TypeError('Specify only one of "adjacency", "edges", or "neighbours"')
+
+        if ('neighbours' not in kwargs):
+            try:
+                adjacency = kwargs['adjacency'].tocsr()
+            except KeyError:
+                edges = kwargs['edges']
+                I = edges[:,0]
+                J = edges[:,1]
+                adjacency = coo_matrix((np.ones(I.size, dtype=np.intp),(I,J)),
+                                  shape=(self.num_nodes,self.num_nodes), dtype = np.intp)
+                adjacency = adjacency.tocsr()
+
+            try:
+                self.depth = kwargs['depth']
+            except KeyError:
+                self.depth = 1
+
+            if self.depth > 1:
+                # Find all vertices 'depth' away from current point.
+                A_pows = [adjacency]
+                for k in range(1,self.depth):
+                    A_pows.append( A_pows[k-1].dot(adjacency) )
+                S = sum(A_pows)
+                S = S.tocoo(copy=False)
+                self.neighbours = np.array([S.row, S.col]).T
+
+                # Remove any redundant stencil directions
+                self._remove_colinear_neighbours(colinear_tol)
+            else:
+                self.neighbours = edges
+        else:
+            try:
+                self.depth = kwargs['depth']
+            except KeyError:
+                self.depth = None
+
+            self.neighbours = kwargs['neighbours']
+
+        # Only use neighbours within search radius
+        if not self.radius==None:
+            self._limit_search_radius()
+
+        # Compute finite difference simplices
+        self._compute_simplices()
+
+        if get_pairs and self.interior.size!=0:
+            self._compute_pairs(colinear_tol)
+        elif get_pairs and self.interior.size==0:
+            raise TypeError("Provide interior indices to compute finite difference pairs.")
+
+
+    def __repr__(self):
+        return ("FDGraph in {0.dim}D with {0.num_vertices} vertices "
+                "and spatial resolution {0.resolution}").format(self)
+
+    def _limit_search_radius(self):
+        I, J = self.neighbours[:,0], self.neighbours[:,1] # index of point and its neighbours
+
+        V = self.vertices[I] - self.vertices[J] # stencil vectors
+        Dist = np.linalg.norm(V,axis=1)         # length of stencil vector
+
+        mask = Dist <= radius
+        I, J = I[mask], J[mask]
+        self.neighbours = np.array([I, J]).T
+
+
+
+    def _compute_simplices(self):
+        """Compute finite difference simplices from neighbours."""
+
+        I, J = self.neighbours[:,0], self.neighbours[:,1] # index of point and its neighbours
+
+        V = self.vertices[I] - self.vertices[J] # stencil vectors
+        Dist = np.linalg.norm(V,axis=1)         # length of stencil vector
+        Vs = V/Dist[:,None]                     # stencil vector, normalized
+
+        def get_simplices(i):
+            mask = I==i
+            nb_ix = J[mask]
+            vs = Vs[mask]
+
+            hull = ConvexHull(vs)
+
+            simplex = nb_ix[hull.simplices]
+            i_array = np.full((simplex.shape[0],1),i)
+
+
+            return np.concatenate( [i_array, simplex], -1)
+
+        self.simplices = np.concatenate([get_simplices(i) for i in range(self.num_nodes)])
+
+        self.resolution = max([np.amin(Dist[I==i]) for i in range(self.num_nodes)])
+
+    def _remove_colinear_neighbours(self, colinear_tol):
+
+        I, J = self.neighbours[:,0], self.neighbours[:,1] # index of point and its neighbours
+        mask = I!=J
+        I, J = I[mask], J[mask]                           # centre point is not a neighbour
+
+        V = self.vertices[I] - self.vertices[J] # stencil vectors
+        Dist = np.linalg.norm(V,axis=1)         # length of stencil vector
+        Vs = V/Dist[:,None]                     # stencil vector, normalized
+
+        # Strip redundant directions
+        def strip_neighbours(i):
+            mask = I==i
+            nb_ix = J[mask]
+            d = Dist[mask]
+            vs = Vs[mask]
+
+            cos = vs.dot(vs.T)
+            check = cos > 1 - colinear_tol
+            check = np.triu(check)
+
+            ix = np.arange(nb_ix.size)
+
+            keep = list({ix[r][np.argmin(d[r])] for r in check})
+
+            i_array = np.full((len(keep),1),i)
+            return np.concatenate([ i_array, nb_ix[keep,None] ], -1)
+
+        self.neighbours = np.concatenate([strip_neighbours(i) for i in range(self.num_nodes)])
+
+
+    def _compute_pairs(self,colinear_tol):
+
+        I, J = self.neighbours[:,0], self.neighbours[:,1] # index of point and its neighbours
+
+        V = self.vertices[I] - self.vertices[J] # stencil vectors
+        Dist = np.linalg.norm(V,axis=1)         # length of stencil vector
+        Vs = V/Dist[:,None]                     # stencil vector, normalized
+
+        def get_pairs(i):
+            mask = I==i
+            nb_ix = J[mask]
+            vs = Vs[mask]
+
+            cos = vs.dot(vs.T)
+            check = cos < -1 + colinear_tol
+            check = np.triu(check)
+            if not check.any():
+                raise TypeError("Point {0} has no pairs".format(i))
+
+            ix = np.indices(check.shape)
+            pairs = ix[:, check].T
+
+            i_array = np.full((len(pairs),1),i)
+            return  np.concatenate([ i_array, nb_ix[pairs] ], -1)
+
+        self.pairs = np.concatenate([get_pairs(i) for i in self.interior])
+
+    @property
+    def dim(self):
+        return self.vertices.shape[1]
+
+    @property
+    def num_vertices(self):
+        return self.vertices.shape[0]
 
     @property
     def nodes(self):
         return self.vertices
 
-    @nodes.setter
-    def nodes(self, vertices):
-        self.vertices = vertices
-
     @property
     def num_nodes(self):
         return self.num_vertices
 
-class Grid(FDMesh):
-    """A rectangular grid for finite differences."""
-
-    def __init__(self, shape, bounds, stencil_radius):
-        super().__init__()
-
-        self.dim = len(shape)
-        self.bbox = bounds
-
-        self.stencil_radius = stencil_radius
-
-        # define appropriate stencil for calculating neighbours
-        stcl = stencils.create(self.stencil_radius,self.dim)
-
-
-
-        # --- Vertices ---
-        points = [np.linspace(bounds[0,i],bounds[1,i],num = shape[i]) for i in range(self.dim)]
-
-        # grid indices
-        grid = np.indices(shape)
-
-        # meshgrid, with matrix indexing
-        X = np.meshgrid(*points,sparse=False,indexing='ij')
-        self.vertices = np.reshape(X,(self.dim,np.prod(shape))).T
-        self.num_vertices = self.vertices.shape[0]
-
-
-
-        # --- Interior indices ---
-        mask_int = [slice(None)];
-        for i in range(self.dim):
-            mask_int.append(slice(1,-1))
-
-        interior = grid[mask_int]
-
-        self.interior = np.reshape(np.ravel_multi_index(interior,shape),-1)
-        self.num_interior = self.interior.size
-
-
-
-        # --- Boundary indices ---
-        big_enough = [grid[i] == shape[i]-1 for i in range(self.dim)]
-        big_enough = np.array(big_enough)
-        big_enough = big_enough.any(axis=0)
-
-        mask_bdry = np.logical_or((grid==0).any(0),big_enough)
-        boundary = grid[:, mask_bdry]
-
-        self.boundary = np.ravel_multi_index(boundary,shape)
-        self.num_boundary = self.boundary.size
-
-
-
-        # --- Compute interior neighbour indices ---
-
-        # neighbours
-        desired_shape = np.concatenate([[stcl.shape[1]],
-                                        np.ones(self.dim,dtype=np.intp),
-                                        [stcl.shape[0]]])
-        neighbours = np.reshape(stcl.T,desired_shape) + np.expand_dims(interior,axis=self.dim+1)
-
-        # mask of domain neighbours
-        small_enough = [neighbours[i] < shape[i] for i in range(self.dim)]
-        small_enough = np.array(small_enough)
-        small_enough = small_enough.all(axis=0)
-
-        mask_domain = np.logical_and(neighbours>=0,small_enough)
-        mask_domain = mask_domain.all(axis=0)
-
-        # raveled index of central interior stencil point
-        interior_ix = np.ravel_multi_index(interior,shape)
-        I = np.tile(np.expand_dims(interior_ix,axis=self.dim+1),stcl.shape[0])
-        I = I[mask_domain]
-
-        # raveled index of neighbour
-        J = np.ravel_multi_index(neighbours[:,mask_domain],shape)
-
-        self.interior_neighbours = np.array([I,J]).T
-
-
-
-        # --- Compute boundary neighbour indices ---
-
-        # neighbours
-        desired_shape = np.concatenate([[stcl.shape[1]],
-                                        [1],
-                                        [stcl.shape[0]]])
-        neighbours = np.reshape(stcl.T,desired_shape) + np.expand_dims(boundary,axis=self.dim+1)
-
-        # mask of domain neighbours
-        small_enough = [neighbours[i] < shape[i] for i in range(self.dim)]
-        small_enough = np.array(small_enough)
-        small_enough = small_enough.all(axis=0)
-
-        mask_domain = np.logical_and(neighbours>=0,small_enough)
-        mask_domain = mask_domain.all(axis=0)
-
-        # raveled index of central boundary stencil point
-        boundary_ix = np.ravel_multi_index(boundary,shape)
-        I = np.tile(np.expand_dims(boundary_ix,axis=self.dim+1),stcl.shape[0])
-        I = I[mask_domain]
-
-        # raveled index of neighbour
-        J = np.ravel_multi_index(neighbours[:,mask_domain],shape)
-
-        self.boundary_neighbours = np.array([I,J]).T
+    @property
+    def num_interior(self):
+        return self.interior.size
 
     @property
-    def stencil_radius(self):
-        return self.__stencil_radius
+    def num_boundary(self):
+        return self.boundary.size
 
-    @stencil_radius.setter
-    def stencil_radius(self, r):
-        if r<=0:
-            raise ValueError('stencil radius must be positive.')
-        if type(r)!=int:
-            raise TypeError('stencil radius must be integer valued.')
-        self.__stencil_radius = r
+    @property
+    def depth(self):
+        return self._depth
+
+    @depth.setter
+    def depth(self, d):
+        if (type(d)==int and d>=1) or d==None:
+            self._depth = d
+        else:
+            raise TypeError("depth must be integer valued and greater than 0")
