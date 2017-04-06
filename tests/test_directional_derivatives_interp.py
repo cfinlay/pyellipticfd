@@ -23,8 +23,8 @@ if d==3:
 else:
     Z = 0
 
-U1 = X**2 - Y**2 + Z**2
-U2 = X - Y
+U2 = X**2 - Y**2 + Z**2
+U1 = X - Y
 
 if d==2:
     th = np.array([np.cos(np.pi/8), np.sin(np.pi/8)])
@@ -32,4 +32,5 @@ else:
     th = np.array([1/3,1/4,1/7])
     th /= np.linalg.norm(th)
 
-d2, M = ddi.d2(U1,G,[1,0])
+d2, M2 = ddi.d2(U2,G,[1,0])
+d1, M1 = ddi.d1(U1,G,[1,0])
