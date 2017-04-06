@@ -1,6 +1,5 @@
 import numpy as np
-import itertools
-import stencils
+from scipy.sparse import coo_matrix
 
 #def d1da(U,dx,direction="both"):
 #    """
@@ -27,7 +26,7 @@ import stencils
 #    v = [cos(theta), sin(theta)].
 #    """
 
-def d2(U,X,Ix,v):
+def d2(u,G,v):
     """
     Compute the second directional derivative of u, in direction v.
 
@@ -35,63 +34,124 @@ def d2(U,X,Ix,v):
     ----------
     U : array_like
         Function values at grid points.
-    dx : scalar
-        Uniform grid resolution.
-    stencil: array_like
-        An array of stencil vectors. Must be listed in counterclockwise order.
-    control : tuple
-        Angle of direction of derivative. The first element of the tuple is the index
-        specifying a pair of stencil vectors, given by the index to the
-        clockwise element of the pair. The second element is the convex
-        combination parameter.
+    G : FDMesh
+        The mesh of grid points.
+    v : array_like
+        Direction to take second derivative.
 
     Returns
     -------
     d2u : array_like
         Second directional derivative.
+    M : scipy csr_matrix
+        Finite difference matrix.
     """
-    domain_shape = np.array(U.shape)
-    ndims = domain_shape.size
-    D2vv = np.zeros(domain_shape-2)
 
 
-    # We want v to be an array of vectors, a direction for each point
+    # v must be an array of vectors, a direction for each interior point
     v = np.array(v)
-    if v.size==1:
-        # v is a constant angle, convert to vector for each point
-        v = np.array([np.broadcast_to(np.cos(v),domain_shape-2),
-                      np.broadcast_to(np.sin(v),domain_shape-2)])
+    if (v.size==1) & (G.dim==2):
+        # v is a constant spherical coordinate, convert to vector for each point
+        v = np.broadcast_to([np.cos(v), np.sin(v)], (G.num_interior, G.dim))
 
-    elif v.size==2 & ndims==3:
-        v = np.array([np.broadcast_to(np.sin(v[0])*np.cos(v[1]),domain_shape-2),
-                      np.broadcast_to(np.sin(v[0])*np.sin(v[1]),domain_shape-2),
-                      np.broadcast_to(np.cos(v[1]),domain_shape-2)])
+    elif (v.size==2) & (G.dim==3):
+        v = np.broadcast_to([np.sin(v[0])*np.cos(v[1]), np.sin(v[0])*np.sin(v[1]), np.cos(v[1])],
+                     (G.num_interior, G.dim))
 
-    elif v.size==ndims:
+    elif v.size==G.dim:
         # v is already a vector, but constant for each point.
         # Broadcast to everypoint
-        v /= np.linalg.norm(v)
-        if ndims==2:
-            v = np.broadcast_to(v[:,None,None],
-                                np.append(ndims,domain_shape-2))
-        elif ndims==3:
-            v = np.broadcast_to(v[:,None,None,None],
-                                np.append(ndims,domain_shape-2))
+        norm = np.linalg.norm(v)
+        v = v/norm
+        v = np.broadcast_to(v, (G.num_interior, G.dim))
 
-    elif (v.shape==domain_shape-2).all() & ndims==2:
-        # v is an angle, convert to vector
-        v = np.array([np.cos(v),np.sin(v)])
+    elif (v.size==G.num_interior) & (G.dim==2):
+        # v is in spherical coordinates, convert to vector
+        v = np.array([np.cos(v),np.sin(v)]).T
 
-    elif v.shape==np.append(ndims-1,domain_shape-2).all() & ndims==3:
-        #
-        v = np.array([np.sin(v[0,:,:])*np.cos(v[1,:,:]),
-                      np.sin(v[0,:,:])*np.sin(v[1,:,:]),
-                      np.cos(v[1,:,:])])
+    elif (v.shape==(G.num_interior,2)) & (G.dim==3):
+        v = np.array([np.sin(v[:,0])*np.cos(v[:,1]),
+                      np.sin(v[:,0])*np.sin(v[:,1]),
+                      np.cos(v[:,1])]).T
 
-    elif (v.shape==np.append(ndims,domain_shape-2)).all():
+    elif v.shape==(G.num_interior,G.dim):
         #then v is a vector for each point, normalize
-        norm_v = np.linalg.norm(v,axis=0)
-        v /=  norm_v
+        norm = np.linalg.norm(v,axis=1)
+        v = v/norm[:,None]
+
+
+
+    # Get finite difference simplices on interior
+    mask = np.in1d(G.simplices[:,0], G.interior)
+    interior_simplices = G.simplices[mask]
+    I, S = interior_simplices[:,0], interior_simplices[:,1:]
+
+    X = G.vertices[S] - G.vertices[I,None] # The simplex vectors
+    X = np.swapaxes(X,1,2)                 # Transpose last two axis
+
+    # dictionary, to look up interior index from graph index
+    d = dict(zip(G.interior,range(G.num_interior)))
+    i = [d[key] for key in I]
+
+    # Cone coordinates of direction to take derivative
+    Xi = np.linalg.solve(X,v[i])
+
+    # Given interior index, compute directional derivative
+    def d2(k):
+        mask = I==k
+        xi = Xi[mask] # cone coordinates
+        x = X[mask]   # stencil vectors
+        s = interior_simplices[mask] # simplex indices
+
+        # Forward direction
+        mask_f = np.squeeze((xi>=0).all(axis=1)) # Farkas' lemma
+        xi_f =  xi[mask_f][0]
+        h_f = 1/np.sum(xi_f)
+
+        # Backward direction
+        mask_b = np.squeeze((xi<=0).all(axis=1))
+        xi_b =  xi[mask_b][0]
+        h_b = -1/np.sum(xi_b)
+
+        # finite difference distance
+        h = np.min([h_f, h_b])
+
+        # Convex coordinates
+        xi_f = np.append(1-np.sum(h*xi_f),h*xi_f)
+        xi_b = np.append(1-np.sum(-h*xi_b),-h*xi_b)
+
+        i_f = s[mask_f][0]
+        i_b = s[mask_b][0]
+
+        u_f = u[i_f].dot(xi_f)
+        u_b = u[i_b].dot(xi_b)
+
+        d2u = (-2*u[k]+u_f+u_b)/h**2
+
+        # Compute FD matrix, as
+        # COO scipy sparse matrix data
+        j = np.concatenate([np.array([k]),i_f, i_b])
+        i = np.full(j.shape,k, dtype = np.intp)
+        val = np.concatenate([np.array([-2]), xi_f, xi_b])/h**2
+        coo = (val,i,j)
+
+        return  d2u, coo
+
+    D2 = [d2(k) for k in G.interior]
+
+    d2u = np.array([tup[0] for tup in D2])
+
+    i = np.concatenate([tup[1][1] for tup in D2])
+    j = np.concatenate([tup[1][2] for tup in D2])
+    val = np.concatenate([tup[1][0] for tup in D2])
+
+    M = coo_matrix((val, (i,j)), shape = [G.num_nodes]*2).tocsr()
+    M = M[M.getnnz(1)>0]
+
+    return d2u, M
+
+
+
 
 ## TODO: -deal with points near boundary
 #def d2eigs(U,dx,stencil=stencil,eigs="both"):
@@ -118,104 +178,6 @@ def d2(U,X,Ix,v):
 #        minimal eigenvalue first.
 #        If eigs!="both", then the control of the specified eigenvalue.
 #    """
-#    Nx, Ny = U.shape
-#    width = np.abs(stencil).max()
-#    nvectors = int(stencil.shape[0]/2) #TODO: verify this actually an integer
-#
-#    if eigs=="both" or eigs=="min":
-#        Dvv_min = np.zeros((nvectors,Nx-2*width,Ny-2*width))
-#        t_min = np.zeros((nvectors,Nx-2*width,Ny-2*width))
-#    if eigs=="both" or eigs=="max":
-#        Dvv_max = np.zeros((nvectors,Nx-2*width,Ny-2*width))
-#        t_max = np.zeros((nvectors,Nx-2*width,Ny-2*width))
-#
-#    #Vector indices excluding the boundary
-#    I = np.arange(width,Nx-width,dtype=np.intp)
-#    J = np.arange(width,Ny-width,dtype=np.intp)
-#
-#    A = U[width:-width,width:-width]
-#
-#    #Block indices, interior only
-#    [Iint, Jint] = np.indices(A.shape)
-#
-#    for k, (v,w) in enumerate(zip(stencil[0:nvectors],stencil[1:(nvectors+1)])):
-#        vdotw = np.dot(v,w)
-#        diff = w-v
-#        norm_diff2 = np.dot(diff,diff)
-#        norm_v2 = np.dot(v,v)
-#
-#        # z is the vector defined by the convex combination of v and w
-#        def norm_z2(t):
-#            z0 = v[0] +t*diff[0]
-#            z1 = v[1] + t*diff[1]
-#            return z0**2 + z1**2
-#
-#        # Sum of antipodal function values in the stencil
-#        B = U[np.ix_(I+v[0],J+v[1])] + U[np.ix_(I-v[0],J-v[1])]
-#        C = U[np.ix_(I+w[0],J+w[1])] + U[np.ix_(I-w[0],J-w[1])]
-#
-#        def D2(t):
-#            return (-2*A + (1-t)*B + t*C)/(norm_z2(t)*dx**2)
-#
-#        tm, tp = np.zeros(A.shape), np.zeros(A.shape)
-#
-#        a = (B-C)*norm_diff2
-#        b = 2*(2*A-B)*norm_diff2
-#        c = (C+B-4*A)*norm_v2 + 2*(2*A-B)*vdotw
-#
-#        delta = b**2-4*a*c
-#        ix = np.logical_and(B != C, delta>=0)
-#        if ix.any():
-#            aix, bix = a[ix], b[ix]
-#            sqdelix = np.sqrt(delta[ix])
-#
-#            tm[ix], tp[ix] = (-bix-sqdelix)/(2*aix), (-bix+sqdelix)/(2*aix)
-#
-#        ix = np.logical_and(B==C, 2*A!=B)
-#        if ix.any():
-#            tm[ix] = -c[ix]/b[ix]
-#            tp[ix] = tm[ix]
-#
-#        tm[np.logical_or(tm<0,tm>1)] = 0
-#        tp[np.logical_or(tp<0,tp>1)] = 0
-#        t = np.stack((np.zeros(A.shape),tm,tp,np.ones(A.shape)))
-#
-#        Dzz = D2(t)
-#        if eigs=="both" or eigs=="min":
-#            l_min = Dzz.argmin(0)
-#            t_min[k,:,:] = t[l_min,Iint,Jint]
-#            Dvv_min[k,:,:] = Dzz[l_min,Iint,Jint]
-#
-#        if eigs=="both" or eigs=="max":
-#            l_max = Dzz.argmax(0)
-#            t_max[k,:,:] = t[l_max,Iint,Jint]
-#            Dvv_max[k,:,:] = Dzz[l_max,Iint,Jint]
-#
-#
-#    if eigs=="both":
-#        kmin = Dvv_min.argmin(0)
-#        lambda_min = Dvv_min[kmin,Iint,Jint]
-#        tmin = t_min[kmin,Iint,Jint]
-#
-#        kmax = Dvv_max.argmax(0)
-#        lambda_max = Dvv_max[kmax,Iint,Jint]
-#        tmax = t_max[kmax,Iint,Jint]
-#
-#        Lambda = lambda_min, lambda_max
-#        Control = (kmin, tmin), (kmax, tmax)
-#
-#        return Lambda, Control
-#    elif eigs=="min":
-#        kmin = Dvv_min.argmin(0)
-#        lambda_min = Dvv_min[kmin,Iint,Jint]
-#        tmin = t_min[kmin,Iint,Jint]
-#
-#        return lambda_min, (kmin, tmin)
-#    elif eigs=="max":
-#        kmax = Dvv_max.argmax(0)
-#        lambda_max = Dvv_max[kmax,Iint,Jint]
-#        tmax = t_max[kmax,Iint,Jint]
-#
 #        return lambda_max, (kmax, tmax)
 #
 #def d2min(U,dx,**kwargs):
