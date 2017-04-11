@@ -1,41 +1,7 @@
 import numpy as np
+from grids import process_v
 from scipy.sparse import coo_matrix
 
-def __process_v(G,v):
-    """Utility function to process direction vector into correct format."""
-
-    # v must be an array of vectors, a direction for each interior point
-    v = np.array(v)
-    if (v.size==1) & (G.dim==2):
-        # v is a constant spherical coordinate, convert to vector for each point
-        v = np.broadcast_to([np.cos(v), np.sin(v)], (G.num_interior, G.dim))
-
-    elif (v.size==2) & (G.dim==3):
-        v = np.broadcast_to([np.sin(v[0])*np.cos(v[1]), np.sin(v[0])*np.sin(v[1]), np.cos(v[1])],
-                     (G.num_interior, G.dim))
-
-    elif v.size==G.dim:
-        # v is already a vector, but constant for each point.
-        # Broadcast to everypoint
-        norm = np.linalg.norm(v)
-        v = v/norm
-        v = np.broadcast_to(v, (G.num_interior, G.dim))
-
-    elif (v.size==G.num_interior) & (G.dim==2):
-        # v is in spherical coordinates, convert to vector
-        v = np.array([np.cos(v),np.sin(v)]).T
-
-    elif (v.shape==(G.num_interior,2)) & (G.dim==3):
-        v = np.array([np.sin(v[:,0])*np.cos(v[:,1]),
-                      np.sin(v[:,0])*np.sin(v[:,1]),
-                      np.cos(v[:,1])]).T
-
-    elif v.shape==(G.num_interior,G.dim):
-        #then v is a vector for each point, normalize
-        norm = np.linalg.norm(v,axis=1)
-        v = v/norm[:,None]
-
-    return v
 
 #def d1da(U,dx,direction="both"):
 #    """
@@ -78,7 +44,7 @@ def d1(u,G,v):
         Finite difference matrix.
     """
     # v must be an array of vectors, a direction for each interior point
-    v = __process_v(G,v)
+    v = process_v(G,v)
 
     # Get finite difference simplices on interior
     mask = np.in1d(G.simplices[:,0], G.interior)
@@ -157,7 +123,7 @@ def d2(u,G,v):
         Finite difference matrix.
     """
     # v must be an array of vectors, a direction for each interior point
-    v = __process_v(G,v)
+    v = process_v(G,v)
 
     # Get finite difference simplices on interior
     mask = np.in1d(G.simplices[:,0], G.interior)

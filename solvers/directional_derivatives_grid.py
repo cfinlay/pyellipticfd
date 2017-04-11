@@ -1,78 +1,78 @@
 import numpy as np
+from grids import process_v
+from scipy.sparse import coo_matrix
 
-#TODO: stencil type should agree with ddi
-stencil = np.array([[  1,  0],
-                      [  1,  1],
-                      [  0,  1],
-                      [ -1,  1]], dtype=np.intp)
-
-def d2(U,dx,stencil,ix=np.array([0])):
+def d2(u,G,v):
     """
-    Returns second derivative in the direction v using a centered difference.
+    Compute the second directional derivative of u, in direction v.
+
+    Parameters
+    ----------
+    u : array_like
+        Function values at grid points.
+    G : FDMesh
+        The mesh of grid points.
+    v : array_like
+        Direction to take second derivative.
+
+    Returns
+    -------
+    d2u : array_like
+        Second derivative in the direction v.
+    M : scipy csr_matrix
+        Finite difference matrix: the Jacobian.
     """
-    Nx, Ny = U.shape
-    if ix.size==1:
-        if stencil.ndim==1:
-            v = stencil
-        else:
-            v = stencil[ix]
 
-        w = np.max(np.abs(v))       #width of vector
-        norm_v = np.linalg.norm(v)  #length of the vector
+    # v must be an array of vectors, a direction for each interior point
+    v = process_v(G,v)
 
-        #recover interior index appropriate for stencil of width w
-        ind_x = np.arange(w,Nx-w,dtype = np.intp)
-        ind_y = np.arange(w,Ny-w,dtype = np.intp)
+    # Center point index, and stencil neighbours
+    I, J = G.pairs[:,0], G.pairs[:,1:]
 
-        c = np.ix_(ind_x,ind_y)              #center index
-        f = np.ix_(ind_x-v[0],ind_y-v[1])    #forward
-        b = np.ix_(ind_x+v[0],ind_y+v[1])    #backward
+    X = G.vertices[J] - G.vertices[I,None] # The stencil vectors
+    Xnorm = np.linalg.norm(X,axis=2)
+    Xs = X/Xnorm[:,:,None] # Normalized, for computing cosine later
 
-        uvv = U[f] + U[b] - 2 * U[c]
-        uvv = uvv/(norm_v*dx)**2
-        return uvv
-    else:
-        v = stencil[ix,:]
-        normv2 = stencil[ix,0]**2 + stencil[ix,1]**2
-        minw = np.min(np.abs(stencil).max(1))
+    # dictionary, to look up interior index from graph index
+    d = dict(zip(G.interior,range(G.num_interior)))
+    i = [d[key] for key in I]
 
-        I, J =  np.indices(U.shape)
-        I = I[minw:Nx-minw,minw:Ny-minw]
-        J = J[minw:Nx-minw,minw:Ny-minw]
+    # Cone coordinates of direction to take derivative
+    v_broadcast = v[i]
 
-        C = U[I,J]
-        F = U[I+v[:,:,0],J+v[:,:,1]]
-        B = U[I-v[:,:,0],J-v[:,:,1]]
-
-        return (-2*C + F + B)/(dx**2 * normv2)
+    cos_sq = np.einsum('lji,li->lj',Xs,v_broadcast)**2
+    sum_cos2 = np.sum(cos_sq,axis=1)
 
 
+    # Given interior index, get the best direction
+    def indices(k):
+        mask = I==k
+        i = np.argmax(sum_cos2[mask])
+        cfb = G.pairs[mask][i] # index of center, forward and backward points
+        xnorm = Xnorm[mask][i]
+        return cfb, xnorm
 
+    data = [indices(k) for k in G.interior]
 
-def d1abs(U,dx,v):
-    """
-    Returns (absolute) directional directive in direction v using
-    forward/backward differences.
+    pairs = np.array([tup[0] for tup in data])
+    norms = np.array([tup[1] for tup in data])
 
-    Caution: this difference is not monotone!
-    """
-    Nx, Ny = U.shape
-    w = np.max(np.abs(v))       #width of vectors
-    norm_v = np.linalg.norm(v)  #length of the vector
+    u_bc = u[pairs]
+    weight = (2*np.array([-np.sum(norms,axis=1),norms[:,1],norms[:,0]]).T /
+                ( np.sum((norms**2)*norms[:,[1,0]],axis=1)[:,None] ) )
 
-    #recover interior index appropriate for stencil of width w
-    ind_x = np.arange(w,Nx-w,dtype = np.intp)
-    ind_y = np.arange(w,Ny-w,dtype = np.intp)
+    d2u = np.sum(weight*u_bc, axis=1)
 
-    c = np.ix_(ind_x,ind_y)              #center index
-    f = np.ix_(ind_x-v[0],ind_y-v[1])    #forward
-    b = np.ix_(ind_x+v[0],ind_y+v[1])    #backward
+    i = np.repeat(pairs[:,0],3)
+    j = pairs.flatten()
+    weight = weight.flatten()
 
-    uv = np.maximum(U[f],U[b]) - U[c]
-    uv = uv/(dx*norm_v)
-    return uv
+    M = coo_matrix((weight, (i,j)), shape = [G.num_nodes]*2).tocsr()
+    M = M[M.getnnz(1)>0]
 
-def d2eigs(U,dx,stencil=stencil,eigs="both"):
+    return d2u, M
+
+def d2eigs(u,G):
     """
     Compute the maximum and minimum eigenvalues of the Hessian of U.
 
@@ -80,69 +80,62 @@ def d2eigs(U,dx,stencil=stencil,eigs="both"):
     ----------
     u : array_like
         Function values at grid points.
-    dx : scalar
-        Uniform grid resolution.
-    stencil : list
-        A list of k stencil directions, with shape (k,2).
+    G : FDMesh
+        The mesh of grid points.
     eigs : string
         Specify which eigenvalue to retrieve: "min", "max", or "both".
 
     Returns
     -------
-    Lambda : a list, or an array
-        If eigs="both", a list containing the minimal and maximal eigenvalues,
-        with the minimal eigenvalue first.
-        If eigs!="both", then an array of the specified eigenvalue.
+    Lambda : tuple
     """
-    Nx, Ny = U.shape
 
-    widths = np.abs(stencil).max(1)
+    # Center point index, and stencil neighbours
+    I, J = G.pairs[:,0], G.pairs[:,1:]
 
-    # Assume first vector in stencil has width 1
-    # TODO: otherwise throw Exception
-    if eigs=="both" or eigs=="min":
-        lambda_min = d2(U,dx,stencil[0])
-        ix_min = np.zeros(lambda_min.shape, dtype=np.intp)
-    if eigs=="both" or eigs=="max":
-        lambda_max = d2(U,dx,stencil[0])
-        ix_max = np.zeros(lambda_max.shape, dtype=np.intp)
+    X = G.vertices[J] - G.vertices[I,None] # The stencil vectors
+    Xnorm = np.linalg.norm(X,axis=2)
 
-    for k, (v, w) in enumerate(zip(stencil[1:], widths[1:]),1):
-        Dvv = d2(U,dx,v)
-        if eigs=="both" or eigs=="min":
-            l = lambda_min[(w-1):(Nx-1-w),(w-1):(Ny-1-w)]
-            subix = ix_min[(w-1):(Nx-1-w),(w-1):(Ny-1-w)]
+    u_bc = u[G.pairs]
+    weight = (2*np.array([-np.sum(Xnorm,axis=1),Xnorm[:,1],Xnorm[:,0]]).T /
+                ( np.sum((Xnorm**2)*Xnorm[:,[1,0]],axis=1)[:,None] ) )
 
-            bl = Dvv < l
-            l[bl] = Dvv[bl]
-            subix[bl] = k
-        if eigs=="both" or eigs=="max":
-            l = lambda_max[(w-1):(Nx-1-w),(w-1):(Ny-1-w)]
-            subix = ix_max[(w-1):(Nx-1-w),(w-1):(Ny-1-w)]
+    d2u = np.sum(weight*u_bc, axis=1)
 
-            bl = Dvv > l
-            l[bl] = Dvv[bl]
-            subix[bl] = k
+    def eigs(k):
+        mask = I==k
+        d2 = d2u[mask]
+        w = weight[mask]
+        ix = np.argsort(d2)
+        return d2[ix[[0,-1]]], G.pairs[mask][ix[[0,-1]]], w[ix[[0,-1]]]
 
-    if eigs=="both":
-        L = (lambda_min, lambda_max)
-        Ix = (ix_min, ix_max)
-        return L, Ix
-    elif eigs=="min":
-        return lambda_min, ix_min
-    elif eigs=="max":
-        return lambda_max, ix_max
+    data = [eigs(k) for k in G.interior]
 
-def d2min(U,dx,**kwargs):
+    lambda_min = np.array([tup[0][0] for tup in data])
+    lambda_max = np.array([tup[0][1] for tup in data])
+    j_min = np.array([tup[1][0] for tup in data])
+    j_max = np.array([tup[1][1] for tup in data])
+    w_min = np.array([tup[2][0] for tup in data])
+    w_max = np.array([tup[2][1] for tup in data])
+
+    i = np.repeat(j_min[:,0],3)
+
+    M_min = coo_matrix((w_min.flatten(), (i,j_min.flatten())), shape = [G.num_nodes]*2).tocsr()
+    M_min = M_min[M_min.getnnz(1)>0]
+
+    M_max = coo_matrix((w_max.flatten(), (i,j_max.flatten())), shape = [G.num_nodes]*2).tocsr()
+    M_max = M_max[M_max.getnnz(1)>0]
+
+    return (lambda_min, M_min), (lambda_max, M_max)
+
+def d2min(u,G):
     """
-    Compute the minimum eigenvalues of the Hessian of U.
-    Equivalent to calling d2eigs(u,dx,eigs="min")
+    Compute the minimum eigenvalues of the Hessian of u.
     """
-    return d2eigs(U,dx,eigs="min",**kwargs)
+    return d2eigs(u,G)[0]
 
-def d2max(U,dx,**kwargs):
+def d2max(u,G):
     """
-    Compute the maximum eigenvalues of the Hessian of U.
-    Equivalent to calling d2eigs(u,dx,eigs="max")
+    Compute the maximum eigenvalues of the Hessian of u.
     """
-    return d2eigs(U,dx,eigs="max",**kwargs)
+    return d2eigs(u,G)[1]
