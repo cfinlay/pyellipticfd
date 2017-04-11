@@ -23,7 +23,7 @@ from scipy.sparse import coo_matrix
 #    """
 #
 
-def d1(u,G,v):
+def d1(u,G,v, jacobian=True):
     """
     Compute the directional derivative of u, in direction v.
 
@@ -35,13 +35,15 @@ def d1(u,G,v):
         The mesh of grid points.
     v : array_like
         Direction to take second derivative.
+    jacobian : boolean
+        Switch, to compute the Jacobian
 
     Returns
     -------
     d1u : array_like
         First derivative in the direction v.
     M : scipy csr_matrix
-        Finite difference matrix.
+        Finite difference matrix. Only returned if jacobian==True
     """
     # v must be an array of vectors, a direction for each interior point
     v = process_v(G,v)
@@ -82,11 +84,14 @@ def d1(u,G,v):
 
         d1u = (-u[k]+u_f)/h
 
-        # Compute FD matrix, as COO scipy sparse matrix data
-        j = np.concatenate([np.array([k]),i_f])
-        i = np.full(j.shape,k, dtype = np.intp)
-        val = np.concatenate([np.array([-1]), xi_f])/h
-        coo = (val,i,j)
+        if jacobian==True:
+            # Compute FD matrix, as COO scipy sparse matrix data
+            j = np.concatenate([np.array([k]),i_f])
+            i = np.full(j.shape,k, dtype = np.intp)
+            val = np.concatenate([np.array([-1]), xi_f])/h
+            coo = (val,i,j)
+        else:
+            coo=None
 
         return  d1u, coo
 
@@ -94,15 +99,18 @@ def d1(u,G,v):
 
     d1u = np.array([tup[0] for tup in D1])
 
-    i = np.concatenate([tup[1][1] for tup in D1])
-    j = np.concatenate([tup[1][2] for tup in D1])
-    val = np.concatenate([tup[1][0] for tup in D1])
-    M = coo_matrix((val, (i,j)), shape = [G.num_nodes]*2).tocsr()
-    M = M[M.getnnz(1)>0]
+    if jacobian==True:
+        i = np.concatenate([tup[1][1] for tup in D1])
+        j = np.concatenate([tup[1][2] for tup in D1])
+        val = np.concatenate([tup[1][0] for tup in D1])
+        M = coo_matrix((val, (i,j)), shape = [G.num_nodes]*2).tocsr()
+        M = M[M.getnnz(1)>0]
 
-    return d1u, M
+        return d1u, M
+    else:
+        return d1u
 
-def d2(u,G,v):
+def d2(u,G,v,jacobian=True):
     """
     Compute the second directional derivative of u, in direction v.
 
@@ -114,13 +122,15 @@ def d2(u,G,v):
         The mesh of grid points.
     v : array_like
         Direction to take second derivative.
+    jacobian : boolean
+        Switch, to compute the Jacobian
 
     Returns
     -------
     d2u : array_like
         Second derivative in the direction v.
     M : scipy csr_matrix
-        Finite difference matrix.
+        Finite difference matrix. Only returned if jacobian==True
     """
     # v must be an array of vectors, a direction for each interior point
     v = process_v(G,v)
@@ -172,11 +182,14 @@ def d2(u,G,v):
 
         d2u = (-2*u[k]+u_f+u_b)/h**2
 
-        # Compute FD matrix, as COO scipy sparse matrix data
-        j = np.concatenate([np.array([k]),i_f, i_b])
-        i = np.full(j.shape,k, dtype = np.intp)
-        val = np.concatenate([np.array([-2]), xi_f, xi_b])/h**2
-        coo = (val,i,j)
+        if jacobian==True:
+            # Compute FD matrix, as COO scipy sparse matrix data
+            j = np.concatenate([np.array([k]),i_f, i_b])
+            i = np.full(j.shape,k, dtype = np.intp)
+            val = np.concatenate([np.array([-2]), xi_f, xi_b])/h**2
+            coo = (val,i,j)
+        else:
+            coo=None
 
         return  d2u, coo
 
@@ -184,13 +197,16 @@ def d2(u,G,v):
 
     d2u = np.array([tup[0] for tup in D2])
 
-    i = np.concatenate([tup[1][1] for tup in D2])
-    j = np.concatenate([tup[1][2] for tup in D2])
-    val = np.concatenate([tup[1][0] for tup in D2])
-    M = coo_matrix((val, (i,j)), shape = [G.num_nodes]*2).tocsr()
-    M = M[M.getnnz(1)>0]
+    if jacobian==True:
+        i = np.concatenate([tup[1][1] for tup in D2])
+        j = np.concatenate([tup[1][2] for tup in D2])
+        val = np.concatenate([tup[1][0] for tup in D2])
+        M = coo_matrix((val, (i,j)), shape = [G.num_nodes]*2).tocsr()
+        M = M[M.getnnz(1)>0]
 
-    return d2u, M
+        return d2u, M
+    else:
+        return d2u
 
 
 

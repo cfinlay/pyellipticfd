@@ -2,7 +2,7 @@ import numpy as np
 from grids import process_v
 from scipy.sparse import coo_matrix
 
-def d2(u,G,v):
+def d2(u,G,v,jacobian=True):
     """
     Compute the second directional derivative of u, in direction v.
 
@@ -14,6 +14,8 @@ def d2(u,G,v):
         The mesh of grid points.
     v : array_like
         Direction to take second derivative.
+    jacobian : boolean
+        Switch, whether to compute the Jacobian.
 
     Returns
     -------
@@ -21,6 +23,7 @@ def d2(u,G,v):
         Second derivative in the direction v.
     M : scipy csr_matrix
         Finite difference matrix: the Jacobian.
+        Only returned if jacobian==True
     """
 
     # v must be an array of vectors, a direction for each interior point
@@ -63,16 +66,19 @@ def d2(u,G,v):
 
     d2u = np.sum(weight*u_bc, axis=1)
 
-    i = np.repeat(pairs[:,0],3)
-    j = pairs.flatten()
-    weight = weight.flatten()
+    if jacobian==True:
+        i = np.repeat(pairs[:,0],3)
+        j = pairs.flatten()
+        weight = weight.flatten()
 
-    M = coo_matrix((weight, (i,j)), shape = [G.num_nodes]*2).tocsr()
-    M = M[M.getnnz(1)>0]
+        M = coo_matrix((weight, (i,j)), shape = [G.num_nodes]*2).tocsr()
+        M = M[M.getnnz(1)>0]
 
-    return d2u, M
+        return d2u, M
+    else:
+        return d2u
 
-def d2eigs(u,G):
+def d2eigs(u,G,jacobian=True):
     """
     Compute the maximum and minimum eigenvalues of the Hessian of U.
 
@@ -83,7 +89,9 @@ def d2eigs(u,G):
     G : FDMesh
         The mesh of grid points.
     eigs : string
-        Specify which eigenvalue to retrieve: "min", "max", or "both".
+        Specify which eigenvalue to retrieve: "min", "max", or "all".
+    jacobian : boolean
+        Whether to compute the Jacobian or not.
 
     Returns
     -------
@@ -102,40 +110,53 @@ def d2eigs(u,G):
 
     d2u = np.sum(weight*u_bc, axis=1)
 
-    def eigs(k):
-        mask = I==k
-        d2 = d2u[mask]
-        w = weight[mask]
-        ix = np.argsort(d2)
-        return d2[ix[[0,-1]]], G.pairs[mask][ix[[0,-1]]], w[ix[[0,-1]]]
+    if jacobian==True:
+        def eigs(k):
+            mask = I==k
+            d2 = d2u[mask]
+            w = weight[mask]
+            ix = np.argsort(d2)
+            return d2[ix[[0,-1]]], G.pairs[mask][ix[[0,-1]]], w[ix[[0,-1]]]
+    else:
+        def eigs(k):
+            mask = I==k
+            d2 = d2u[mask]
+            ix = np.argsort(d2)
+            return tuple([ d2[ix[[0,-1]]] ])
+
 
     data = [eigs(k) for k in G.interior]
 
     lambda_min = np.array([tup[0][0] for tup in data])
     lambda_max = np.array([tup[0][1] for tup in data])
-    j_min = np.array([tup[1][0] for tup in data])
-    j_max = np.array([tup[1][1] for tup in data])
-    w_min = np.array([tup[2][0] for tup in data])
-    w_max = np.array([tup[2][1] for tup in data])
 
-    i = np.repeat(j_min[:,0],3)
+    if jacobian==True:
+        j_min = np.array([tup[1][0] for tup in data])
+        j_max = np.array([tup[1][1] for tup in data])
+        w_min = np.array([tup[2][0] for tup in data])
+        w_max = np.array([tup[2][1] for tup in data])
 
-    M_min = coo_matrix((w_min.flatten(), (i,j_min.flatten())), shape = [G.num_nodes]*2).tocsr()
-    M_min = M_min[M_min.getnnz(1)>0]
+        i = np.repeat(j_min[:,0],3)
 
-    M_max = coo_matrix((w_max.flatten(), (i,j_max.flatten())), shape = [G.num_nodes]*2).tocsr()
-    M_max = M_max[M_max.getnnz(1)>0]
+        M_min = coo_matrix((w_min.flatten(), (i,j_min.flatten())), shape = [G.num_nodes]*2).tocsr()
+        M_min = M_min[M_min.getnnz(1)>0]
 
-    return (lambda_min, M_min), (lambda_max, M_max)
+        M_max = coo_matrix((w_max.flatten(), (i,j_max.flatten())), shape = [G.num_nodes]*2).tocsr()
+        M_max = M_max[M_max.getnnz(1)>0]
 
-def d2min(u,G):
+        return (lambda_min, M_min), (lambda_max, M_max)
+
+    else:
+        return lambda_min, lambda_max
+
+def d2min(u,G,**kwargs):
     """
     Compute the minimum eigenvalues of the Hessian of u.
     """
-    return d2eigs(u,G)[0]
+    return d2eigs(u,G,**kwargs)[0]
 
-def d2max(u,G):
+def d2max(u,G,**kwargs):
     """
     Compute the maximum eigenvalues of the Hessian of u.
     """
-    return d2eigs(u,G)[1]
+    return d2eigs(u,G,**kwargs)[1]
