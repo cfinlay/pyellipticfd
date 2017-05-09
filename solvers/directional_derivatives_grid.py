@@ -1,5 +1,5 @@
 import numpy as np
-from grids import process_v
+from gridtools import process_v
 from scipy.sparse import coo_matrix
 
 def d2(u,G,v,jacobian=True):

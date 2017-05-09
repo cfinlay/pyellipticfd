@@ -1,4 +1,3 @@
-#from collections import defaultdict
 import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.spatial import ConvexHull
@@ -7,22 +6,24 @@ from scipy.spatial import ConvexHull
 class FDGraph(object):
     """A graph for finite differences."""
 
-    def __init__(self,vertices,**kwargs):
+    def __init__(self,vertices,angular_resolution=np.pi/3,
+            get_pairs = False, colinear_tol = 1e-4,
+            **kwargs):
         """Create a FDGraph object.
 
         Parameters
         ----------
-        vertices : array (double)
+        vertices : array
             An NxD array, listing N points in D dimensions.
+        angular_resolution : float
+            The angular resolution of the graph. Defaults to pi/3
+        get_pairs : bool, optional
+            Whether to search for antipodal pairs. Use this option
+            only when working on symmetric grids. Defaults to False.
+        colinear_tol : float, optional
+            Tolerance for detecting colinear points. Defaults to 1e-4.
 
         **kwargs
-            get_pairs : bool
-                Whether to search for antipodal pairs. Use this option
-                only when working on symmetric grids. Defaults to False.
-            radius : float
-                Maximum neighbour search radius.
-            colinear_tol : float
-                Tolerance for detecting colinear points. Defaults to 1e-4.
             interior : array
                 Indices for interior points.
             boundary : array
@@ -36,44 +37,39 @@ class FDGraph(object):
                 An array of neighbours, with two columns.
                 The first column gives the index of the centre stencil point;
                 the second column gives the index of a neighbour point.
-            depth : int
-                Maximum neighbour graph distance.
+            min_edge_length : float
+                Minimum edge length between graph points.
+                Only needed if creating the graph with 'neighbours'.
+            resolution : float
+                The spatial resolution of the graph. Every ball with radius 'resolution'
+                contains at least one point. Required when creating the graph with
+                'neighbours'. If not provided when creating the graph with 'edges'
+                or 'adjacency', a heuristic guess is made.
 
         Notes
         -----
-        - You must specify one of 'neighbours', 'adjacency', or 'edges'.
+        - You must specify one of 'neighbours', 'adjacency', and 'edges'.
+        - You must specify at least one of 'interior' and 'boundary'.
         """
 
-        self.vertices = vertices # array of points
-
-        self.bbox = np.array([np.amin(self.vertices,0),
-            np.amax(self.vertices,0)]) # bounding box
-
-        try:
-            get_pairs = kwargs['get_pairs']
-        except KeyError:
-            get_pairs = False
-
-        try:
-            self.radius = kwargs['radius']
-        except KeyError:
-            self.radius = None
-
-        try:
-            colinear_tol = kwargs['colinear_tol']
-        except KeyError:
-            colinear_tol = 1e-4
+        self.vertices = vertices
+        self.angular_resolution = angular_resolution
 
 
         try:
             self.interior = kwargs['interior']
+            try:
+                self.boundary = kwargs['boundary']
+            except KeyError:
+                mask = np.in1d(self.indices,self.interior,invert=True)
+                self.boundary = self.indices[mask]
         except KeyError:
-            self.interior = np.empty(shape=0,dtype=np.intp)
-
-        try:
-            self.boundary = kwargs['boundary']
-        except KeyError:
-            self.boundary = np.empty(shape=0,dtype=np.intp)
+            try:
+                self.boundary = kwargs['boundary']
+                mask = np.in1d(self.indices,self.boundary,invert=True)
+                self.interior = self.indices[mask]
+            except KeyError:
+                raise TypeError("""Please provide either an array of boundary or interior indices""")
 
 
         if not ('edges' in kwargs or 'adjacency' in kwargs or 'neighbours' in kwargs):
@@ -85,22 +81,47 @@ class FDGraph(object):
         if ('edges' in kwargs or 'adjacency' in kwargs) and 'neighbours' in kwargs:
             raise TypeError('Specify only one of "adjacency", "edges", or "neighbours"')
 
+
         if ('neighbours' not in kwargs):
             try:
-                adjacency = kwargs['adjacency'].tocsr()
+                A = kwargs['adjacency'].tocoo()
+                I = A.row
+                J = A.col
+                edges = np.array([I,J]).T
+
             except KeyError:
-                #TODO: turn directed graphs into undirected
                 edges = kwargs['edges']
                 I = edges[:,0]
                 J = edges[:,1]
-                adjacency = coo_matrix((np.ones(I.size, dtype=np.intp),(I,J)),
+                A = coo_matrix((np.ones(I.size, dtype=np.intp),(I,J)),
                         shape=(self.num_nodes,self.num_nodes), dtype = np.intp)
-                adjacency = adjacency.tocsr()
+
+            # Convert a directed graph into an undirected graph
+            if (A != A.T).nnz != 0:
+                A = A + A.T
+                A = coo_matrix((np.ones(A.nnz, dtype=np.intp),(A.rows,A.cols)),
+                        shape=A.shape, dtype=np.intp)
+
+                I = A.row
+                J = A.col
+                edges = np.array([I,J]).T
+
+            adjacency = A.tocsr()
 
             try:
-                self.depth = kwargs['depth']
+                self.min_edge_length = kwargs['min_edge_length']
             except KeyError:
-                self.depth = 1
+                V = self.vertices[I]-self.vertices[J]
+                Dist = np.linalg.norm(V,axis=1)
+                self.min_edge_length = Dist.min()
+
+            try:
+                self.resolution = kwargs['resolution']
+            except KeyError:
+                print('keyerror')
+                V = self.vertices[I]-self.vertices[J]
+                Dist = np.linalg.norm(V,axis=1)
+                self.resolution = Dist.max()
 
             if self.depth > 1:
                 # Find all vertices 'depth' away from current point.
@@ -111,34 +132,30 @@ class FDGraph(object):
                 S = S.tocoo(copy=False)
                 self.neighbours = np.array([S.row, S.col]).T
 
+                # Only use neighbours within search radius
+                self._limit_search_radius()
+
                 # Remove any redundant stencil directions
                 self._remove_colinear_neighbours(colinear_tol)
             else:
                 self.neighbours = edges
+
         else:
-            try:
-                self.depth = kwargs['depth']
-            except KeyError:
-                self.depth = None
-
+            self.min_edge_length = kwargs['min_edge_length']
+            self.resolution = kwargs['resolution']
             self.neighbours = kwargs['neighbours']
-
-        # Only use neighbours within search radius
-        if not self.radius==None:
-            self._limit_search_radius()
 
         # Compute finite difference simplices
         self._compute_simplices()
 
-        if get_pairs and self.interior.size!=0:
+        # TODO: don't limit with min search radius
+        if get_pairs:
             self._compute_pairs(colinear_tol)
-        elif get_pairs and self.interior.size==0:
-            raise TypeError("Provide interior indices to compute finite difference pairs.")
 
 
     def __repr__(self):
         return ("FDGraph in {0.dim}D with {0.num_vertices} vertices "
-                "and spatial resolution {0.resolution}").format(self)
+                "and spatial resolution {0.resolution:.3g}").format(self)
 
     def _limit_search_radius(self):
         I, J = self.neighbours[:,0], self.neighbours[:,1] # index of point and its neighbours
@@ -146,7 +163,7 @@ class FDGraph(object):
         V = self.vertices[I] - self.vertices[J] # stencil vectors
         Dist = np.linalg.norm(V,axis=1)         # length of stencil vector
 
-        mask = Dist <= radius
+        mask = np.logical_and(Dist <= self.max_radius, Dist >= self.min_radius)
         I, J = I[mask], J[mask]
         self.neighbours = np.array([I, J]).T
 
@@ -175,8 +192,6 @@ class FDGraph(object):
             return np.concatenate( [i_array, simplex], -1)
 
         self.simplices = np.concatenate([get_simplices(i) for i in range(self.num_nodes)])
-
-        self.resolution = max([np.amin(Dist[I==i]) for i in range(self.num_nodes)])
 
     def _remove_colinear_neighbours(self, colinear_tol):
 
@@ -241,8 +256,19 @@ class FDGraph(object):
         return self.vertices.shape[1]
 
     @property
+    def Cd(self):
+        if self.dim==2:
+            return 2
+        elif self.dim==3:
+            return 1 + 2/np.sqrt(3)
+
+    @property
     def num_vertices(self):
         return self.vertices.shape[0]
+
+    @property
+    def indices(self):
+        return np.arange(self.num_vertices)
 
     @property
     def nodes(self):
@@ -261,55 +287,55 @@ class FDGraph(object):
         return self.boundary.size
 
     @property
-    def depth(self):
-        return self._depth
+    def min_edge_length(self):
+        return self._l
 
-    @depth.setter
-    def depth(self, d):
-        if (type(d)==int and d>=1) or d==None:
-            self._depth = d
+    @min_edge_length.setter
+    def min_edge_length(self,l):
+        if l>0:
+            self._l = l
         else:
-            raise TypeError("depth must be integer valued and greater than 0")
+            raise TypeError("min_edge_length must be greater than 0")
 
-def process_v(G,v,domain="interior"):
-    """Utility function to process direction vector into correct format."""
+    @property
+    def resolution(self):
+        return self._h
 
-    if domain=="interior":
-        N = G.num_interior
-    elif domain=="boundary":
-        N = G.num_boundary
-    elif domain=="all":
-        N = G.num_nodes
+    @resolution.setter
+    def resolution(self,h):
+        if h>0:
+            self._h = h
+        else:
+            raise TypeError("resolution must be greater than 0")
 
-    # v must be an array of vectors, a direction for each interior point
-    v = np.array(v)
-    if (v.size==1) & (G.dim==2):
-        # v is a constant spherical coordinate, convert to vector for each point
-        v = np.broadcast_to([np.cos(v), np.sin(v)], (N, G.dim))
+    @property
+    def angular_resolution(self):
+        return self._dtheta
 
-    elif (v.size==2) & (G.dim==3):
-        v = np.broadcast_to([np.sin(v[0])*np.cos(v[1]), np.sin(v[0])*np.sin(v[1]), np.cos(v[1])],
-                (N, G.dim))
+    @angular_resolution.setter
+    def angular_resolution(self,dtheta):
+        if dtheta>0 and dtheta < np.pi:
+            self._dtheta = dtheta
+        else:
+            raise TypeError("angular_resolution must be greater than 0 and less than pi")
 
-    elif v.size==G.dim:
-        # v is already a vector, but constant for each point.
-        # Broadcast to everypoint
-        norm = np.linalg.norm(v)
-        v = v/norm
-        v = np.broadcast_to(v, (N, G.dim))
+    @property
+    def max_radius(self):
+        h = self.resolution
+        th = self.angular_resolution
 
-    elif (v.size==N) & (G.dim==2):
-        # v is in spherical coordinates, convert to vector
-        v = np.array([np.cos(v),np.sin(v)]).T
+        return self.Cd * h * (1+ np.cos(th/2)/np.tan(th/2) + np.sin(th/2))
 
-    elif (v.shape==(N,2)) & (G.dim==3):
-        v = np.array([np.sin(v[:,0])*np.cos(v[:,1]),
-            np.sin(v[:,0])*np.sin(v[:,1]),
-            np.cos(v[:,1])]).T
+    @property
+    def min_radius(self):
+        h = self.resolution
 
-    elif v.shape==(N,G.dim):
-        #then v is a vector for each point, normalize
-        norm = np.linalg.norm(v,axis=1)
-        v = v/norm[:,None]
+        return self.max_radius - 2*self.Cd*h
 
-    return v
+    @property
+    def depth(self):
+        return int(np.ceil(self.max_radius/self.min_edge_length))
+
+    @property
+    def bbox(self):
+        return np.array([np.amin(self.vertices,0), np.amax(self.vertices,0)])

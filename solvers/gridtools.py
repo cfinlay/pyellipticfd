@@ -3,9 +3,14 @@ import numpy as np
 import stencils
 
 def uniform_grid(shape, bounds, stencil_radius):
+    """Create a FDGraph object for a uniform grid."""
 
     dim = len(shape)
     npts = np.prod(shape)
+    
+    rectangle_shape = (bounds[1,:] - bounds[0,:])/(np.array(shape)-1)
+    min_edge_length = np.amin(rectangle_shape)
+    resolution = np.linalg.norm(rectangle_shape)/2
 
     # define appropriate stencil for calculating neighbours
     stcl = stencils.create(stencil_radius,dim)
@@ -44,6 +49,7 @@ def uniform_grid(shape, bounds, stencil_radius):
 
     boundary = np.ravel_multi_index(boundary,shape)
 
+    #TODO: minimum search radius, angular resolution
 
 
     # --- Compute neighbour indices ---
@@ -73,4 +79,50 @@ def uniform_grid(shape, bounds, stencil_radius):
     neighbours = np.array([I,J]).T
 
     return grids.FDGraph(vertices,**{'interior': interior, 'boundary': boundary,
-        'neighbours': neighbours, 'depth' : stencil_radius, 'get_pairs': True})
+        'neighbours': neighbours, 'depth' : stencil_radius, 'get_pairs': True,
+        'min_edge_length' : min_edge_length,
+        'resolution' : resolution})
+
+
+def process_v(G,v,domain="interior"):
+    """Utility function to process direction vector into correct format."""
+
+    if domain=="interior":
+        N = G.num_interior
+    elif domain=="boundary":
+        N = G.num_boundary
+    elif domain=="all":
+        N = G.num_nodes
+
+    # v must be an array of vectors, a direction for each interior point
+    v = np.array(v)
+    if (v.size==1) & (G.dim==2):
+        # v is a constant spherical coordinate, convert to vector for each point
+        v = np.broadcast_to([np.cos(v), np.sin(v)], (N, G.dim))
+
+    elif (v.size==2) & (G.dim==3):
+        v = np.broadcast_to([np.sin(v[0])*np.cos(v[1]), np.sin(v[0])*np.sin(v[1]), np.cos(v[1])],
+                (N, G.dim))
+
+    elif v.size==G.dim:
+        # v is already a vector, but constant for each point.
+        # Broadcast to everypoint
+        norm = np.linalg.norm(v)
+        v = v/norm
+        v = np.broadcast_to(v, (N, G.dim))
+
+    elif (v.size==N) & (G.dim==2):
+        # v is in spherical coordinates, convert to vector
+        v = np.array([np.cos(v),np.sin(v)]).T
+
+    elif (v.shape==(N,2)) & (G.dim==3):
+        v = np.array([np.sin(v[:,0])*np.cos(v[:,1]),
+            np.sin(v[:,0])*np.sin(v[:,1]),
+            np.cos(v[:,1])]).T
+
+    elif v.shape==(N,G.dim):
+        #then v is a vector for each point, normalize
+        norm = np.linalg.norm(v,axis=1)
+        v = v/norm[:,None]
+
+    return v
