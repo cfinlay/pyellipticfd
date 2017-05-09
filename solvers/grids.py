@@ -8,10 +8,46 @@ class FDGraph(object):
     """A graph for finite differences."""
 
     def __init__(self,vertices,**kwargs):
-        self.vertices = vertices
+        """Create a FDGraph object.
+
+        Parameters
+        ----------
+        vertices : array (double)
+            An NxD array, listing N points in D dimensions.
+
+        **kwargs
+            get_pairs : bool
+                Whether to search for antipodal pairs. Use this option
+                only when working on symmetric grids. Defaults to False.
+            radius : float
+                Maximum neighbour search radius.
+            colinear_tol : float
+                Tolerance for detecting colinear points. Defaults to 1e-4.
+            interior : array
+                Indices for interior points.
+            boundary : array
+                Indices for boundary points.
+            edges : array
+                An array of graph edges, with two columns. Each row
+                is a pair of indices specifying an edge.
+            adjacency : scipy.sparse
+                An NxN adjacency matrix.
+            neighbours : array
+                An array of neighbours, with two columns.
+                The first column gives the index of the centre stencil point;
+                the second column gives the index of a neighbour point.
+            depth : int
+                Maximum neighbour graph distance.
+
+        Notes
+        -----
+        - You must specify one of 'neighbours', 'adjacency', or 'edges'.
+        """
+
+        self.vertices = vertices # array of points
 
         self.bbox = np.array([np.amin(self.vertices,0),
-                              np.amax(self.vertices,0)])
+            np.amax(self.vertices,0)]) # bounding box
 
         try:
             get_pairs = kwargs['get_pairs']
@@ -53,11 +89,12 @@ class FDGraph(object):
             try:
                 adjacency = kwargs['adjacency'].tocsr()
             except KeyError:
+                #TODO: turn directed graphs into undirected
                 edges = kwargs['edges']
                 I = edges[:,0]
                 J = edges[:,1]
                 adjacency = coo_matrix((np.ones(I.size, dtype=np.intp),(I,J)),
-                                  shape=(self.num_nodes,self.num_nodes), dtype = np.intp)
+                        shape=(self.num_nodes,self.num_nodes), dtype = np.intp)
                 adjacency = adjacency.tocsr()
 
             try:
@@ -252,7 +289,7 @@ def process_v(G,v,domain="interior"):
 
     elif (v.size==2) & (G.dim==3):
         v = np.broadcast_to([np.sin(v[0])*np.cos(v[1]), np.sin(v[0])*np.sin(v[1]), np.cos(v[1])],
-                     (N, G.dim))
+                (N, G.dim))
 
     elif v.size==G.dim:
         # v is already a vector, but constant for each point.
@@ -267,8 +304,8 @@ def process_v(G,v,domain="interior"):
 
     elif (v.shape==(N,2)) & (G.dim==3):
         v = np.array([np.sin(v[:,0])*np.cos(v[:,1]),
-                      np.sin(v[:,0])*np.sin(v[:,1]),
-                      np.cos(v[:,1])]).T
+            np.sin(v[:,0])*np.sin(v[:,1]),
+            np.cos(v[:,1])]).T
 
     elif v.shape==(N,G.dim):
         #then v is a vector for each point, normalize

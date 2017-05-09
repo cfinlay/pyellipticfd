@@ -1,6 +1,5 @@
 from gridtools import uniform_grid
 import numpy as np
-from scipy.spatial import ConvexHull
 
 
 N = 2**4+1;
