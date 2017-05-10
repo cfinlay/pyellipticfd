@@ -10,7 +10,7 @@ def d2(u,G,v,jacobian=True):
     ----------
     u : array_like
         Function values at grid points.
-    G : FDMesh
+    G : FDGraph
         The mesh of grid points.
     v : array_like
         Direction to take second derivative.
