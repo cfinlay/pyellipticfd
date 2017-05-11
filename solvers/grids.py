@@ -1,5 +1,6 @@
 """Classes to structure data for finite differences."""
 
+import warnings
 import itertools
 import numpy as np
 from scipy.sparse import coo_matrix
@@ -44,11 +45,17 @@ class FDPointCloud(object):
             Indices for boundary points.
         """
 
+        if angular_resolution is None:
+            self._dtheta = angular_resolution
+        elif angular_resolution>0 and angular_resolution <= np.pi/2:
+            self._dtheta = angular_resolution
+        else:
+            raise TypeError("angular_resolution must be strictly greater than 0 and less than pi/2")
+
         self.vertices = vertices
-        self.angular_resolution = angular_resolution
-        self.spatial_resolution = spatial_resolution
-        self.boundary_resolution = boundary_resolution
-        self.dist_to_boundary = dist_to_boundary
+        self._h = spatial_resolution
+        self._hb = boundary_resolution
+        self._delta = dist_to_boundary
         self.neighbours = neighbours
 
         if not interior is None:
@@ -79,11 +86,11 @@ class FDPointCloud(object):
         return np.arange(self.num_vertices)
 
     @property
-    def nodes(self):
+    def points(self):
         return self.vertices
 
     @property
-    def num_nodes(self):
+    def num_points(self):
         return self.num_vertices
 
     @property
@@ -102,87 +109,61 @@ class FDPointCloud(object):
     def spatial_resolution(self):
         return self._h
 
-    @spatial_resolution.setter
-    def spatial_resolution(self,h):
-        if h==None:
-            self._h = h
-        elif h>0:
-            self._h = h
-        else:
-            raise TypeError("spatial resolution must be greater than 0")
-
     @property
     def boundary_resolution(self):
         return self._hb
-
-    @boundary_resolution.setter
-    def boundary_resolution(self,hb):
-        if hb==None:
-            self._hb = hb
-        elif hb>0:
-            self._hb = hb
-        else:
-            raise TypeError("boundary resolution must be greater than 0")
 
     @property
     def angular_resolution(self):
         return self._dtheta
 
-    @angular_resolution.setter
-    def angular_resolution(self,dtheta):
-        if dtheta==None:
-            self._dtheta = dtheta
-        elif dtheta>0 and dtheta <= np.pi/2:
-            self._dtheta = dtheta
-        else:
-            raise TypeError("angular_resolution must be strictly greater than 0 and less than pi/2")
 
     @property
     def dist_to_boundary(self):
         return self._delta
 
-    @dist_to_boundary.setter
-    def dist_to_boundary(self,delta):
-        if delta==None:
-            self._delta = delta
-        elif delta>0:
-            self._delta = delta
-        else:
-            raise TypeError("dist_to_boundary must be greater than 0")
 
     @property
     def _I(self):
+        """Index of centre point in stencil vectors"""
         return self.neighbours[:,0]
 
     @property
     def _J(self):
+        """Index of neighbour point in stencil vectors"""
         return self.neighbours[:,1]
 
     @property
     def _V(self):
+        """Stencil vectors"""
         return self.vertices[self._J]-self.vertices[self._I]
 
     @property
     def _VDist(self):
+        """Length of stencil vectors"""
         return np.linalg.norm(self._V, axis=1)
 
     @property
     def _Vs(self):
+        """Stencil vectors, normalized"""
         return self._V/self._VDist[:,None]
 
 class FDTriMesh(FDPointCloud):
     """Class for finite differences on triangular meshes."""
+    # Only for interpolating methods, not Froese's
+    #TODO: Froese's framework
 
-    def __init__(self, vertices, t, angular_resolution=np.pi/4,
+    def __init__(self, p, t, angular_resolution=np.pi/4,
             colinear_tol=1e-4, **kwargs):
         """Create a FDTriMesh object.
 
         Parameters
         ----------
-        vertices : array
+        p : array
             An NxD array, listing N points in D dimensions.
         t : array
-            An Nt x (D+1) array, listing Nt triangles (or tetrahedra in 3d).
+            An Nt x (D+1) array of point indices, listing Nt triangles (or
+            tetrahedra in 3d).
         angular_resolution : float
             The desired angular resolution.
         colinear_tol : float
@@ -194,27 +175,50 @@ class FDTriMesh(FDPointCloud):
             Indices for boundary points.
         """
 
-        super().__init__(vertices, angular_resolution=angular_resolution, **kwargs)
+        super().__init__(p, angular_resolution=angular_resolution, **kwargs)
+
+        # function to compute a simplex's circumcircle's radius
+        def circumcircle_radius(ix):
+            X = p[ix]
+            V = X[1:]-X[0]
+            if ix.size > 2:
+                s = np.linalg.solve(V,.5*np.diag(V.dot(V.T)))
+                return np.linalg.norm(s)
+            elif ix.size==2:
+                return np.linalg.norm(V)/2
 
         # Compute circumcenter, get radius of circumcircle for each triangle.
         # This is the spatial resolution.
         if not self.spatial_resolution:
-            def circumcircle_radius(i):
-                X = vertices[t[i]]
-                V = X[1:]-X[0]
-                s = np.linalg.solve(V,.5*np.diag(V.dot(V.T)))
-                return np.linalg.norm(s)
-            self.spatial_resolution = max([circumcircle_radius(i) for i in range(t.shape[0])])
+            self._h = max([circumcircle_radius(ix) for ix in t])
 
+
+        if (not self.dist_to_boundary) or (not self.boundary_resolution):
+            b = np.reshape(np.in1d(t,self.boundary),t.shape)
 
         # Compute minimum distance between interior and boundary vertices
         if not self.dist_to_boundary:
-            b = np.reshape(np.in1d(t,self.boundary),t.shape).any(axis=1)
-            tb = t[b]
-            b = np.reshape(np.in1d(tb,self.boundary,invert=True),tb.shape)
+            b1 = b.any(axis=1)
+            tb = t[b1]
+            b1 = np.reshape(np.in1d(tb,self.boundary,invert=True),tb.shape)
 
-            self.dist_to_boundary = min([cdist(vertices[ix,:][np.logical_not(i)],
-                vertices[ix,:][i]).min() for (ix,i) in zip(tb,b) ])
+            self._delta = min([cdist(p[ix,:][np.logical_not(i)],
+                p[ix,:][i]).min() for (ix,i) in zip(tb,b1) ])
+
+        # Compute the boundary resolution
+        if not self.boundary_resolution:
+            tb = t[b.sum(axis=1)==2]
+
+            # boundary faces
+            fb = np.reshape(tb.flatten()[np.in1d(tb,self.boundary)],(tb.shape[0],self.dim))
+
+            self._hb = max([circumcircle_radius(ix) for ix in fb])
+
+        needed_hb = self._delta*np.tan(self._dtheta/2)/self.Cd
+        if self._hb > needed_hb:
+            raise TypeError ("The boundary resolution {0._hb:.3g} is not small enough "
+                "to satisfy the desired angular resolution."
+                "\nNeed boundary resolution less than {1:.3g}").format(self,needed_hb)
 
 
         # Get edge from list of triangles
@@ -224,11 +228,11 @@ class FDTriMesh(FDPointCloud):
 
         # Create adjacency matrix
         A = coo_matrix((np.ones(self._I.size, dtype=np.intp),(self._I,self._J)),
-                shape=(self.num_nodes,self.num_nodes), dtype = np.intp)
+                shape=(self.num_points,self.num_points), dtype = np.intp)
         self.adjacency = A.tocsr()
 
         # Compute minimum edge length
-        self.min_edge_length = self._VDist.min()
+        self._l = self._VDist.min()
 
         # Find all neighbours 'depth' away (in graph distance) from each vertex
         if self.depth > 1:
@@ -272,7 +276,7 @@ class FDTriMesh(FDPointCloud):
 
             return np.concatenate( [i_array, simplex], -1)
 
-        self.simplices = np.concatenate([get_simplices(i) for i in range(self.num_nodes)])
+        self.simplices = np.concatenate([get_simplices(i) for i in range(self.num_points)])
 
     def _remove_colinear_neighbours(self, colinear_tol):
         D = self._VDist
@@ -296,7 +300,7 @@ class FDTriMesh(FDPointCloud):
             i_array = np.full((len(keep),1),i)
             return np.concatenate([ i_array, nb_ix[keep,None] ], -1)
 
-        self.neighbours = np.concatenate([strip_neighbours(i) for i in range(self.num_nodes)])
+        self.neighbours = np.concatenate([strip_neighbours(i) for i in range(self.num_points)])
 
 
     @property
@@ -311,13 +315,6 @@ class FDTriMesh(FDPointCloud):
     @property
     def min_edge_length(self):
         return self._l
-
-    @min_edge_length.setter
-    def min_edge_length(self,l):
-        if l>0:
-            self._l = l
-        else:
-            raise TypeError("min_edge_length must be greater than 0")
 
     @property
     def max_radius(self):
