@@ -1,13 +1,13 @@
-#from gridtools import uniform_grid
-from grids import FDTriMesh, FDRegularGrid
+from fd_pt_classes import FDTriMesh, FDRegularGrid
+
 import numpy as np
 import distmesh as dm
-from scipy.spatial import ConvexHull
-from scipy.spatial import Delaunay
+from scipy.spatial import ConvexHull, Delaunay
 
 
 
 # Regular grid on unit square
+# ---------------------------
 N = 9;
 d = 2;
 xi = [0,1]
@@ -18,7 +18,9 @@ r = 2
 
 Gu = FDRegularGrid(shape,bounds,r)
 
+
 # Uniform grid on unit circle
+# ---------------------------
 fd = lambda p : np.sqrt((p**2).sum(1))-1.0
 p, _ = dm.distmesh2d(fd, dm.huniform, 0.1, (-1,-1,1,1))
 
@@ -38,4 +40,4 @@ interior = np.arange(p.shape[0]-th.size)
 dly = Delaunay(p)
 t = dly.simplices
 
-Gs = FDTriMesh(p, t,  boundary=boundary, interior = interior)
+Gs = FDTriMesh(p, t,  boundary=boundary, interior = interior, min_search=False)

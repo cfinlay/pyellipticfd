@@ -1,6 +1,102 @@
 import numpy as np
-from gridtools import process_v
+from ddutils import process_v
 from scipy.sparse import coo_matrix
+
+def d1(u,G,v, jacobian=True, domain="interior"):
+    """
+    Compute the directional derivative of u, in direction v.
+
+    Parameters
+    ----------
+    u : array_like
+        Function values at grid points.
+    G : FDPointCloud
+        The mesh of grid points.
+    v : array_like
+        Direction to take second derivative.
+    jacobian : boolean
+        Switch, whether to compute the Jacobian
+    domain : string
+        Which nodes to compute derivative on: one of "interior",
+        "boundary", or "all". If not specified, defaults to "interior".
+
+    Returns
+    -------
+    d1u : array_like
+        First derivative in the direction v.
+    M : scipy csr_matrix
+        Finite difference matrix. Only returned if jacobian==True
+    """
+
+    # v must be an array of vectors, a direction for each point
+    v = process_v(G,v,domain=domain)
+
+    if domain=="interior":
+        Ix = G.interior
+    elif domain=="boundary":
+        Ix = G.boundary
+    else:
+        Ix = np.arange(G.num_nodes)
+
+    # Get finite difference simplices on interior
+    if not (domain=="boundary" or domain=="interior"):
+        I, J = G.neighbours[:,0], G.neighbours[:,1]
+    else:
+        mask = np.in1d(G.neighbours[:,0], Ix)
+        neighbours = G.neighbours[mask]
+        I, J = neighbours[:,0], neighbours[:,1]
+
+    X = G.vertices[J] - G.vertices[I] # The simplex vectors
+    Xs = X/np.linalg.norm(X,axis=1)[:,None]
+
+    if (domain=="interior" or domain=="boundary"):
+        # dictionary, to look up domain index from graph index
+        d = dict(zip(Ix,range(Ix.size)))
+        i = [d[key] for key in I]
+
+        # Cosine of direction against stencil vectors
+        C = np.einsum('ij,ij->i',Xs,v[i])
+    else:
+        C = np.einsum('ij,ij,->i',Xs,v[I])
+
+    # Given interior index, compute directional derivative
+    def d1(k):
+        mask = I==k
+        c = C[mask] # cosine, masked
+        x = X[mask] # stencil vectors
+        nbs = neighbours[mask] # neighbour indices
+
+        ix = np.argmax(c)
+        x = x[ix]
+        nbs = nbs[ix]
+
+        h = np.linalg.norm(x)
+        d1u = u[nbs].dot([-1, 1])/h
+
+        if jacobian==True:
+            # Compute FD matrix, as COO scipy sparse matrix data
+            i = np.full(2, k, dtype = np.intp)
+            val = np.array([-1, 1])/h
+            coo = (val,i,nbs)
+        else:
+            coo=None
+
+        return  d1u, coo
+
+    D1 = [d1(k) for k in Ix]
+
+    d1u = np.array([tup[0] for tup in D1])
+
+    if jacobian==True:
+        i = np.concatenate([tup[1][1] for tup in D1])
+        j = np.concatenate([tup[1][2] for tup in D1])
+        val = np.concatenate([tup[1][0] for tup in D1])
+        M = coo_matrix((val, (i,j)), shape = [G.num_nodes]*2).tocsr()
+        M = M[M.getnnz(1)>0]
+
+        return d1u, M
+    else:
+        return d1u
 
 def d2(u,G,v,jacobian=True):
     """
@@ -86,7 +182,7 @@ def d2eigs(u,G,jacobian=True):
     ----------
     u : array_like
         Function values at grid points.
-    G : FDMesh
+    G : FDPointCloud
         The mesh of grid points.
     eigs : string
         Specify which eigenvalue to retrieve: "min", "max", or "all".

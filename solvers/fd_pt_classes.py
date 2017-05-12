@@ -49,16 +49,17 @@ class FDPointCloud(object):
 
         if angular_resolution is None:
             self._dtheta = angular_resolution
-        elif angular_resolution>0 and angular_resolution <= np.pi/2:
+        elif angular_resolution>0 and angular_resolution <= np.pi:
             self._dtheta = angular_resolution
         else:
-            raise TypeError("angular_resolution must be strictly greater than 0 and less than pi/2")
+            raise TypeError("angular_resolution must be strictly greater than 0 and less than pi")
 
-        self.vertices = vertices
+        self._pts = vertices
         self._h = spatial_resolution
         self._hb = boundary_resolution
         self._delta = dist_to_boundary
-        self.neighbours = neighbours
+        self._nbs = neighbours
+        self._simplices = None
 
         if not interior is None:
             self.interior = interior
@@ -73,7 +74,17 @@ class FDPointCloud(object):
             self.interior = self.indices[mask]
         else:
             raise TypeError("Please provide either boundary or interior indices")
+    @property
+    def vertices(self):
+        return self._pts
 
+    @property
+    def neighbours(self):
+        return self._nbs
+
+    @property
+    def simplices(self):
+        return self._simplices
 
     @property
     def dim(self):
@@ -96,6 +107,14 @@ class FDPointCloud(object):
         return self.num_vertices
 
     @property
+    def nodes(self):
+        return self.vertices
+
+    @property
+    def num_nodes(self):
+        return self.num_vertices
+
+    @property
     def num_interior(self):
         return self.interior.size
 
@@ -105,7 +124,7 @@ class FDPointCloud(object):
 
     @property
     def bbox(self):
-        return np.array([np.amin(self.vertices,0), np.amax(self.vertices,0)])
+        return np.array([np.amin(self._pts,0), np.amax(self._pts,0)])
 
     @property
     def spatial_resolution(self):
@@ -136,7 +155,7 @@ class FDPointCloud(object):
     @property
     def _V(self):
         """Stencil vectors"""
-        return self.vertices[self._J]-self.vertices[self._I]
+        return self._pts[self._J]-self._pts[self._I]
 
     @property
     def _VDist(self):
@@ -147,6 +166,12 @@ class FDPointCloud(object):
     def _Vs(self):
         """Stencil vectors, normalized"""
         return self._V/self._VDist[:,None]
+
+    @property
+    def adjacency(self):
+        A = coo_matrix((np.ones(self._I.size, dtype=np.intp),(self._I,self._J)),
+                shape=(self.num_points,self.num_points), dtype = np.intp)
+        return A.tocsr()
 
     def _remove_colinear_neighbours(self, colinear_tol):
         D = self._VDist
@@ -170,7 +195,7 @@ class FDPointCloud(object):
             i_array = np.full((len(keep),1),i)
             return np.concatenate([ i_array, nb_ix[keep,None] ], -1)
 
-        self.neighbours = np.concatenate([strip_neighbours(i) for i in range(self.num_points)])
+        self._nbs = np.concatenate([strip_neighbours(i) for i in range(self.num_points)])
 
     def _compute_simplices(self):
         Vs = self._Vs
@@ -187,15 +212,13 @@ class FDPointCloud(object):
 
             return np.concatenate( [i_array, simplex], -1)
 
-        self.simplices = np.concatenate([get_simplices(i) for i in range(self.num_points)])
+        self._simplices = np.concatenate([get_simplices(i) for i in range(self.num_points)])
 
 class FDTriMesh(FDPointCloud):
-    """Class for finite differences on triangular meshes."""
-    # Only for interpolating methods, not Froese's
-    #TODO: Froese's framework
+    """Class for interpolating finite differences on triangular meshes."""
 
     def __init__(self, p, t, angular_resolution=np.pi/4,
-            colinear_tol=1e-4, **kwargs):
+            colinear_tol=1e-4, min_search=True, interpolation=True, **kwargs):
         """Create a FDTriMesh object.
 
         Parameters
@@ -210,6 +233,13 @@ class FDTriMesh(FDPointCloud):
         colinear_tol : float
             Tolerance for detecting colinear points. Defaults to 1e-4.
             Set to False if you don't want this safety check.
+        min_search : bool
+            If False, don't remove neighbouring below the minimum search radius.
+            Only set to False if: the minimum edge length scales linearly with
+            the spatial resolution as the triangulation is refined, or if you are
+            not using interpolating finite differences.
+        interpolation : bool
+            If True, create simplices for interpolating finite differences.
         interior : array
             Indices for interior points.
         boundary : array
@@ -217,6 +247,9 @@ class FDTriMesh(FDPointCloud):
         """
 
         super().__init__(p, angular_resolution=angular_resolution, **kwargs)
+
+        self._interp = interpolation
+        self._T = t
 
         # function to compute a simplex's circumcircle's radius
         def circumcircle_radius(ix):
@@ -263,43 +296,56 @@ class FDTriMesh(FDPointCloud):
 
         # Get edge from list of triangles
         edges = [np.array([v1,v2]).transpose() for v1,v2 in itertools.permutations(t.transpose(),2)]
-        self.edges = np.concatenate(edges)
-        self.neighbours = self.edges
-
-        # Create adjacency matrix
-        A = coo_matrix((np.ones(self._I.size, dtype=np.intp),(self._I,self._J)),
-                shape=(self.num_points,self.num_points), dtype = np.intp)
-        self.adjacency = A.tocsr()
+        self._e = np.concatenate(edges)
+        self._nbs = self.edges
 
         # Compute minimum interior edge length
         self._l = (self._VDist[np.in1d(self._I, self.interior)]).min()
 
         # Find all neighbours 'depth' away (in graph distance) from each vertex
+        A = self.adjacency
         if self.depth > 1:
-            A_pows = [self.adjacency]
+            A_pows = [A]
             for k in range(1,self.depth):
-                A_pows.append( A_pows[k-1].dot(self.adjacency) )
+                A_pows.append( A_pows[k-1].dot(A) )
             S = sum(A_pows)
             S = S.tocoo(copy=False)
-            self.neighbours = np.array([S.row, S.col]).T
+            self._nbs = np.array([S.row, S.col]).T
 
         # Remove neighbours that are outside the search radii of each vertex
         D = self._VDist
-        mask = np.logical_and(D <= self.max_radius, D>=self.min_radius)
-        self.neighbours = self.neighbours[mask,:]
+
+        if not interpolation:
+            min_search=False
+        self._min_search = min_search
+
+        if min_search:
+            mask = np.logical_and(D <= self.max_radius, D>=self.min_radius)
+        else:
+            mask = np.logical_and(D <= self.max_radius, D>0)
+
+        self._nbs = self.neighbours[mask,:]
 
         # If neighbours are colinear, remove them
         if colinear_tol:
             self._remove_colinear_neighbours(colinear_tol)
 
         # Get simplices
-        self._compute_simplices()
+        if interpolation:
+            self._compute_simplices()
 
     def __repr__(self):
         return ("FDTriMesh in {0.dim}D with {0.num_vertices} vertices, "
                 "spatial resolution {0.spatial_resolution:.3g}, "
                 "and angular resolution {0.angular_resolution:.3g}").format(self)
 
+    @property
+    def triangulation(self):
+        return self._T
+
+    @property
+    def edges(self):
+        return self._e
 
     @property
     def min_edge_length(self):
@@ -308,12 +354,18 @@ class FDTriMesh(FDPointCloud):
 
     @property
     def Cd(self):
-        if self.dim==2:
-            return 2
-        elif self.dim==3:
-            return 1 + 2/np.sqrt(3)
+        if self._interp:
+            if self.dim==2:
+                return 2
+            elif self.dim==3:
+                return 1 + 2/np.sqrt(3)
+            else:
+                raise TypeError("Dimensions other than two and three not supported")
         else:
-            raise TypeError("Dimensions other than two and three not supported")
+            if self.dim==2:
+                return 1
+            else:
+                raise TypeError("Dimensions other than two not supported")
 
     @property
     def max_radius(self):
@@ -324,9 +376,11 @@ class FDTriMesh(FDPointCloud):
 
     @property
     def min_radius(self):
-        h = self.spatial_resolution
-
-        return self.max_radius - 2*self.Cd*h
+        if self._min_search:
+            h = self.spatial_resolution
+            return self.max_radius - 2*self.Cd*h
+        else:
+            return None
 
     @property
     def depth(self):
@@ -334,19 +388,45 @@ class FDTriMesh(FDPointCloud):
 
     @property
     def _max_hb(self):
-        return self._delta*np.tan(self._dtheta/2)/self.Cd
+        if self._interp:
+            return self._delta*np.tan(self._dtheta/2)/self.Cd
+        else:
+            return 2*self._delta*np.tan(self._dtheta/2)
 
 
 class FDRegularGrid(FDPointCloud):
     """Class for finite differences on rectangular grids."""
 
     def __repr__(self):
-        return ("FDRegularGrid in {0.dim}D with {0.num_vertices} vertices").format(self)
-                #"spatial resolution {0.spatial_resolution:.3g}, "
-                #"and angular resolution {0.angular_resolution:.3g}").format(self)
+        return ("FDRegularGrid in {0.dim}D with {0.num_vertices} vertices, "
+                "spatial resolution {0.spatial_resolution:.3g}, "
+                "and angular resolution {0.angular_resolution:.3g}").format(self)
 
     def __init__(self, interior_shape, bounds, stencil_radius, get_pairs=True,
-            colinear_tol=1e-4):
+            interpolation=True, colinear_tol=1e-4):
+        """Create a FDRegularGrid.
+
+        Parameters
+        ----------
+        interior_shape : array
+            Number of interior points per axis.
+        bounds : array
+            A 2 x D array of the bounding box. The first row is the minimum
+            point, the second the maximal point.
+        stencil_radius : int
+            Maximum integer distance to search for stencil points on a lattice.
+        get_pairs : bool
+            Whether to search for directions with exact derivatives on
+            quadratic functions.
+        interpolation : bool
+            If True, create simplices for interpolating finite differences.
+        colinear_tol : float
+            Tolerance for detecting colinear points. Defaults to 1e-4.
+            Set to False if you don't want this safety check.
+        """
+
+        self._r = stencil_radius
+
         dim = len(interior_shape)
         interior_shape = np.array(interior_shape)
         bounds = np.array(bounds)
@@ -378,56 +458,62 @@ class FDRegularGrid(FDPointCloud):
 
         Xb = np.vstack({tuple(row) for row in X})
 
-        self.vertices = np.concatenate([Xint,Xb])
+        self._pts = np.concatenate([Xint,Xb])
         self.interior = np.arange(Xint.shape[0])
         self.boundary = np.arange(Xint.shape[0],Xint.shape[0]+Xb.shape[0])
 
         d = lambda u, v : np.max(np.abs(u-v))
 
-        Dc = pdist(self.vertices, d)
+        Dc = pdist(self._pts, d)
         D = squareform(Dc, checks=False)
 
         Nb =np.logical_and(D <= stencil_radius, D>0)
 
-        self.neighbours = np.concatenate([np.stack([np.full(Nb[i].sum(),i), self.indices[Nb[i]]]).T
+        self._nbs = np.concatenate([np.stack([np.full(Nb[i].sum(),i), self.indices[Nb[i]]]).T
             for i in self.indices])
 
         # If neighbours are colinear, remove them
         if colinear_tol:
             self._remove_colinear_neighbours(colinear_tol)
 
+        self._pairs = None
         if get_pairs:
             self._compute_pairs(colinear_tol)
 
         # Get simplices
-        self._compute_simplices()
+        self._simplices = None
+        if interpolation:
+            self._compute_simplices()
 
         # Scale points
         scaling = (bounds[1]-bounds[0])/(interior_shape+1)
-        self.vertices = self.vertices*scaling + bounds[0]
+        self._pts = self._pts*scaling + bounds[0]
 
         # angular resolution
-        # TODO: Check this is correct in 3D
         stcl = stcl*scaling
-        e = np.zeros(dim)
-        e[0] = 1
-        vs = stcl/np.linalg.norm(stcl,axis=1)[:,None]
-        c = vs.dot(e)
-        th = np.arccos(c)
-        self._dtheta = th[th>0].min()
+        stcl = stcl[np.logical_not(stcl==0).all(axis=1)]
+        def dtheta(i):
+            e = np.zeros(dim)
+            e[i] = 1
+            vs = stcl/np.linalg.norm(stcl,axis=1)[:,None]
+            c = vs.dot(e)
+            th = np.arccos(c)
+            return th[th>0].min()
+
+        self._dtheta = max([dtheta(i) for i in range(dim)])
 
         # distance to boundary
         self._delta = scaling.min()
 
-        # other constants
-        # TODO: set these
-        self._hb = None
+        # boundary resolution
+        b_rect = np.full(dim,1/stencil_radius)
+        b_rect = b_rect*scaling
+        self._hb = max([np.linalg.norm(v)/2 for v in itertools.combinations(b_rect,dim-1)])
 
     def _compute_pairs(self,colinear_tol):
 
         I, J = self._I, self._J # index of point and its neighbours
-
-        Vs = self._Vs                     # stencil vector, normalized
+        Vs = self._Vs           # stencil vector, normalized
 
         def get_pairs(i):
             mask = I==i
@@ -446,4 +532,18 @@ class FDRegularGrid(FDPointCloud):
             i_array = np.full((len(pairs),1),i)
             return  np.concatenate([ i_array, nb_ix[pairs] ], -1)
 
-        self.pairs = np.concatenate([get_pairs(i) for i in self.interior])
+        self._pairs = np.concatenate([get_pairs(i) for i in self.interior])
+    
+    @property
+    def pairs(self):
+        return self._pairs
+
+    @property
+    def stencil_radius(self):
+        """Stencil radius on integer lattice"""
+        return self._r
+
+    @property
+    def depth(self):
+        """Stencil radius on integer lattice"""
+        return self._r

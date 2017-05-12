@@ -1,12 +1,12 @@
 from context import solvers
 from solvers import directional_derivatives_grid as ddg
-from solvers import gridtools
+from solvers.fd_pt_classes import FDRegularGrid
 
 import numpy as np
 
 
 # Set up computational domain
-N = 2**5+1;
+N = 9;
 d = 2;
 xi = [0,1]
 
@@ -14,7 +14,7 @@ shape = [N for i in range(d)]
 bounds = np.array([xi for i in range(d)]).T
 r = 2
 
-G = gridtools.uniform_grid(shape,bounds,r)
+G = FDRegularGrid(shape,bounds,r)
 X = G.vertices[:,0]
 Y = G.vertices[:,1]
 if d==3:
@@ -32,4 +32,5 @@ else:
     th /= np.linalg.norm(th)
 
 d2, M2 = ddg.d2(U2,G,[1,0])
+d1, M1 = ddg.d1(U1,G,[0,1])
 d2eigs = ddg.d2eigs(U2,G)

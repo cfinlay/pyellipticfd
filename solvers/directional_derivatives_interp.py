@@ -1,27 +1,10 @@
+"""Functions to calculate interpolating finite differences."""
+
 import numpy as np
-from gridtools import process_v
 from scipy.sparse import coo_matrix
 
+from ddutils import process_v
 
-#def d1da(U,dx,direction="both"):
-#    """
-#    Calculate descent and ascent directions respectively minimizing and
-#    maximizing
-#        <grad u, p>, st ||p|| = 1.
-#    """
-#
-#def d1descent(U,dx):
-#    """
-#    Compute the minimal value of <grad u, p> st ||p||=1.
-#    Equivalent to calling d2da(u,dx,direction="descent")
-#    """
-#
-#def d1ascent(U,dx):
-#    """
-#    Compute the maximal value of <grad u, p> st ||p||=1.
-#    Equivalent to calling d2da(u,dx,direction="ascent")
-#    """
-#
 
 def d1(u,G,v, jacobian=True, domain="interior"):
     """
@@ -31,12 +14,12 @@ def d1(u,G,v, jacobian=True, domain="interior"):
     ----------
     u : array_like
         Function values at grid points.
-    G : FDMesh
+    G : FDPointCloud
         The mesh of grid points.
     v : array_like
         Direction to take second derivative.
     jacobian : boolean
-        Switch, to compute the Jacobian
+        Switch, whether to compute the Jacobian
     domain : string
         Which nodes to compute derivative on: one of "interior",
         "boundary", or "all". If not specified, defaults to "interior".
@@ -64,8 +47,8 @@ def d1(u,G,v, jacobian=True, domain="interior"):
         I, S = G.simplices[:,0], G.simplices[:,1:]
     else:
         mask = np.in1d(G.simplices[:,0], Ix)
-        interior_simplices = G.simplices[mask]
-        I, S = interior_simplices[:,0], interior_simplices[:,1:]
+        simplices = G.simplices[mask]
+        I, S = simplices[:,0], simplices[:,1:]
 
     X = G.vertices[S] - G.vertices[I,None] # The simplex vectors
     X = np.swapaxes(X,1,2)                 # Transpose last two axis
@@ -85,7 +68,7 @@ def d1(u,G,v, jacobian=True, domain="interior"):
         mask = I==k
         xi = Xi[mask] # cone coordinates
         x = X[mask]   # stencil vectors
-        s = interior_simplices[mask] # simplex indices
+        s = simplices[mask] # simplex indices
 
         # Forward direction
         mask_f = np.squeeze((xi>=0).all(axis=1)) # Farkas' lemma
@@ -132,7 +115,7 @@ def d2(u,G,v,jacobian=True):
     ----------
     u : array_like
         Function values at grid points.
-    G : FDMesh
+    G : FDPointCloud
         The mesh of grid points.
     v : array_like
         Direction to take second derivative.
