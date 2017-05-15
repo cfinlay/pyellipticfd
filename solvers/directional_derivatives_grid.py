@@ -192,6 +192,8 @@ def d2eigs(u,G,jacobian=True):
     Returns
     -------
     Lambda : tuple
+        The minimal and maximal eigenvalues. If Jacobian is True,
+        the Jacobians are also returned.
     """
 
     # Center point index, and stencil neighbours

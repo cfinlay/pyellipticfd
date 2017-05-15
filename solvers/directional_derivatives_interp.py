@@ -167,10 +167,10 @@ def d2(u,G,v,jacobian=True):
         i_f = s[mask_f][0][1:]
         i_b = s[mask_b][0][1:]
 
-        u_f = u[i_f].dot(h_f*xi_f)
-        u_b = u[i_b].dot(-h_b*xi_b)
+        u_f = u[i_f].dot(xi_f)
+        u_b = u[i_b].dot(-xi_b)
 
-        d2u = 2/(h_b+h_f)*((u_f-u[k])/h_f +(u_b-u[k])/h_b)
+        d2u = 2/(h_b+h_f)*((u_f-u[k]/h_f) + (u_b-u[k]/h_b))
 
         if jacobian==True:
             # Compute FD matrix, as COO scipy sparse matrix data
@@ -199,45 +199,102 @@ def d2(u,G,v,jacobian=True):
         return d2u
 
 
+def d2eigs(u,G,jacobian=True):
+    """
+    Compute the maximum and minimum eigenvalues of the Hessian of U.
+
+    Parameters
+    ----------
+    u : array_like
+        Function values at grid points.
+    G : FDPointCloud
+        The mesh of grid points.
+    eigs : string
+        Specify which eigenvalue to retrieve: "min", "max", or "all".
+    jacobian : boolean
+        Whether to compute the Jacobian or not.
+
+    Returns
+    -------
+    Lambda : tuple
+        Respectively, the minimal and maximal eigenvalues. If Jacobian is True,
+        the Jacobians are also returned.
+    """
+
+    if G.dim==3:
+        raise TypeError("Eigenvalues not yet implemented in 3d.")
+
+    # number of directions to take, per stencil
+    Nds = np.ceil(1/G.angular_resolution) # effectively dtheta^2
+    if Nds < 1:
+        Nds = 1
+
+    xi = np.arange(0,1,1/Nds) # stencil coordinates of directions
+    xi = np.array([1-xi,xi])
+
+    # Limit to simplices on interior
+    mask = np.in1d(G.simplices[:,0], G.interior)
+    interior_simplices = G.simplices[mask]
+    I, S = interior_simplices[:,0], interior_simplices[:,1:]
+
+    X = G.vertices[S] - G.vertices[I,None] # The simplex vectors
+    X = np.swapaxes(X,1,2)                 # Transpose last two axis
+
+    V = np.einsum('ijk,kl->ijl',X,xi)
+    V = V/np.linalg.norm(V,axis=1)[:,None,:]
+
+    def eigs(k):
+        mask = I==k
+        V_ = np.concatenate(V[mask],axis=1)
+        X_ = X[mask]
+        S_ = S[mask]
+        Ns = X_.shape[0] # number of simplices about the point
+        bcst_shape = np.concatenate([[Ns],V_.shape])
+        V_ = np.broadcast_to(V_,bcst_shape)
+        Xi_ = np.linalg.solve(X_,V_)  # simplex coordinates
+
+        jf = np.repeat(range(Ns),Nds)
+        Xi_f = Xi_[jf,:,np.arange(Nds*Ns, dtype=np.intp)]
+        S_f = S_[jf,:]
+        h_f = 1./Xi_f.sum(axis=1)
+
+        ixb = np.where((Xi_<=0).all(axis=1))
+        _, j = np.unique(ixb[1], return_index=True)
+        jb = ixb[0][j]
+        Xi_b = Xi_[jb,:,np.arange(Nds*Ns,dtype=np.intp)]
+        S_b = S_[jb,:]
+        h_b = -1./Xi_b.sum(axis=1)
+
+        u_f = np.einsum('ij,ij->i',u[S_f],Xi_f)
+        u_b = np.einsum('ij,ij->i',u[S_b],-Xi_b)
+        d2u = 2/(h_b+h_f)*((u_f-u[k]/h_f) + (u_b-u[k]/h_b))
+
+        isort = d2u.argsort()
+        imin, imax = isort[[0,-1]]
+
+        d2min, d2max = d2u[[imin,imax]]
+
+        #TODO: jacobian
+        return d2min, d2max
+
+    e = [eigs(k) for k in G.interior]
+    d2min = [tup[0] for tup in e]
+    d2max = [tup[1] for tup in e]
+
+    return d2min, d2max
 
 
-## TODO: -deal with points near boundary
-#def d2eigs(U,dx,stencil=stencil,eigs="both"):
-#    """
-#    Compute the maximum and minimum eigenvalues of the Hessian of U.
-#
-#    Parameters
-#    ----------
-#    u : array_like
-#        Function values at grid points.
-#    dx : scalar
-#        Uniform grid resolution.
-#    eigs : string
-#        Specify which eigenvalue to retrieve: "min", "max", or "both".
-#
-#    Returns
-#    -------
-#    Lambda : a tuple, or an array
-#        If eigs="both", a tuple containing the minimal and maximal eigenvalues,
-#        with the minimal eigenvalue first.
-#        If eigs!="both", then an array of the specified eigenvalue.
-#    Control : a list of controls
-#        If eigs="both", a tuple containing the controls of the minimal and maximal eigenvalues,
-#        minimal eigenvalue first.
-#        If eigs!="both", then the control of the specified eigenvalue.
-#    """
-#        return lambda_max, (kmax, tmax)
-#
-#def d2min(U,dx,**kwargs):
-#    """
-#    Compute the minimum eigenvalues of the Hessian of U.
-#    Equivalent to calling d2eigs(u,dx,eigs="min")
-#    """
-#    return d2eigs(U,dx,**kwargs,eigs="min")
-#
-#def d2max(U,dx,**kwargs):
-#    """
-#    Compute the maximum eigenvalues of the Hessian of U.
-#    Equivalent to calling d2eigs(u,dx,eigs="max")
-#    """
-#    return d2eigs(U,dx,**kwargs,eigs="max")
+
+
+
+def d2min(u,G,**kwargs):
+    """
+    Compute the minimum eigenvalues of the Hessian of u.
+    """
+    return d2eigs(u,G,**kwargs)[0]
+
+def d2max(u,G,**kwargs):
+    """
+    Compute the maximum eigenvalues of the Hessian of u.
+    """
+    return d2eigs(u,G,**kwargs)[1]
