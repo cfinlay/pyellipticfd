@@ -170,7 +170,7 @@ def d2(u,G,v,jacobian=True):
         u_f = u[i_f].dot(xi_f)
         u_b = u[i_b].dot(-xi_b)
 
-        d2u = 2/(h_b+h_f)*((u_f-u[k]/h_f) + (u_b-u[k]/h_b))
+        d2u = 2/(h_b+h_f)*(u_f + u_b - u[k]*(1/h_f + 1/h_b) )
 
         if jacobian==True:
             # Compute FD matrix, as COO scipy sparse matrix data
@@ -229,8 +229,9 @@ def d2eigs(u,G,jacobian=True):
     if Nds < 1:
         Nds = 1
 
-    xi = np.arange(0,1,1/Nds) # stencil coordinates of directions
+    xi = np.linspace(0,1,Nds+1) # stencil coordinates of directions
     xi = np.array([1-xi,xi])
+    Nds +=1
 
     # Limit to simplices on interior
     mask = np.in1d(G.simplices[:,0], G.interior)
@@ -250,41 +251,69 @@ def d2eigs(u,G,jacobian=True):
         S_ = S[mask]
         Ns = X_.shape[0] # number of simplices about the point
         bcst_shape = np.concatenate([[Ns],V_.shape])
-        V_ = np.broadcast_to(V_,bcst_shape)
-        Xi_ = np.linalg.solve(X_,V_)  # simplex coordinates
 
         jf = np.repeat(range(Ns),Nds)
-        Xi_f = Xi_[jf,:,np.arange(Nds*Ns, dtype=np.intp)]
+        Xi_f = np.linalg.solve(X_[jf],V_.T)  # simplex coordinates
+        #Xi_f = Xi_[jf,:,np.arange(Nds*Ns, dtype=np.intp)]
         S_f = S_[jf,:]
         h_f = 1./Xi_f.sum(axis=1)
 
-        ixb = np.where((Xi_<=0).all(axis=1))
+        V_bc = np.broadcast_to(V_,bcst_shape)
+        Xi_ = np.linalg.solve(X_,-V_bc)  # simplex coordinates
+        ixb = np.where((Xi_>=0).all(axis=1))
         _, j = np.unique(ixb[1], return_index=True)
         jb = ixb[0][j]
         Xi_b = Xi_[jb,:,np.arange(Nds*Ns,dtype=np.intp)]
         S_b = S_[jb,:]
-        h_b = -1./Xi_b.sum(axis=1)
+        h_b = 1./Xi_b.sum(axis=1)
 
         u_f = np.einsum('ij,ij->i',u[S_f],Xi_f)
-        u_b = np.einsum('ij,ij->i',u[S_b],-Xi_b)
-        d2u = 2/(h_b+h_f)*((u_f-u[k]/h_f) + (u_b-u[k]/h_b))
+        u_b = np.einsum('ij,ij->i',u[S_b],Xi_b)
+        d2u = 2/(h_b+h_f)*( u_f + u_b - u[k]*(1/h_f +1/h_b))
 
         isort = d2u.argsort()
         imin, imax = isort[[0,-1]]
 
         d2min, d2max = d2u[[imin,imax]]
 
-        #TODO: jacobian
-        return d2min, d2max
+        if jacobian==True:
+            # Compute FD matrix, as COO scipy sparse matrix data
+            j_min = np.concatenate([np.array([k]),S_f[imin], S_b[imin]])
+            i_min = np.full(j_min.shape,k, dtype = np.intp)
+            val_min = np.concatenate([np.array([-(1/h_f[imin] + 1/h_b[imin])]),
+                Xi_f[imin], -Xi_b[imin]])*2/(h_f[imin]+h_b[imin])
+            coo_min = (val_min,i_min,j_min)
+
+            j_max = np.concatenate([np.array([k]),S_f[imax], S_b[imax]])
+            i_max = np.full(j_max.shape,k, dtype = np.intp)
+            val_max = np.concatenate([np.array([-(1/h_f[imax] + 1/h_b[imax])]),
+                Xi_f[imax], -Xi_b[imax]])*2/(h_f[imax]+h_b[imax])
+            coo_max = (val_max,i_max,j_max)
+        else:
+            coo_min, coo_max = [None]*2
+
+        return (d2min,coo_min), (d2max,coo_max)
 
     e = [eigs(k) for k in G.interior]
-    d2min = [tup[0] for tup in e]
-    d2max = [tup[1] for tup in e]
+    d2min = np.array([tup[0][0] for tup in e])
+    d2max = np.array([tup[1][0] for tup in e])
 
-    return d2min, d2max
+    if jacobian==True:
+        i_min = np.concatenate([tup[0][1][1] for tup in e])
+        j_min = np.concatenate([tup[0][1][2] for tup in e])
+        val_min = np.concatenate([tup[0][1][0] for tup in e])
+        M_min = coo_matrix((val_min, (i_min,j_min)), shape = [G.num_nodes]*2).tocsr()
+        M_min = M_min[M_min.getnnz(1)>0]
 
+        i_max = np.concatenate([tup[1][1][1] for tup in e])
+        j_max = np.concatenate([tup[1][1][2] for tup in e])
+        val_max = np.concatenate([tup[1][1][0] for tup in e])
+        M_max = coo_matrix((val_max, (i_max,j_max)), shape = [G.num_nodes]*2).tocsr()
+        M_max = M_max[M_max.getnnz(1)>0]
 
-
+        return (d2min, M_min), (d2max, M_max)
+    else:
+        return d2min, d2max
 
 
 def d2min(u,G,**kwargs):

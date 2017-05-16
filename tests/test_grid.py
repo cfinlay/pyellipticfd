@@ -1,8 +1,9 @@
-from fd_pt_classes import FDTriMesh, FDRegularGrid
-
 import numpy as np
 import distmesh as dm
 from scipy.spatial import ConvexHull, Delaunay
+
+from context import solvers
+from solvers.fd_pt_classes import FDTriMesh, FDRegularGrid
 
 
 

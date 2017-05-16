@@ -31,6 +31,7 @@ else:
     th = np.array([1/3,1/4,1/7])
     th /= np.linalg.norm(th)
 
-d2, M2 = ddi.d2(U2,G,[1,0])
-d2eigs = ddi.d2eigs(U2,G)
 d1, M1 = ddi.d1(U1,G,[1,0])
+d2, M2 = ddi.d2(U2,G,[1,0])
+(d2min, M_min), (d2max, M_max) = ddi.d2eigs(U2,G)
+
