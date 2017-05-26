@@ -1,9 +1,7 @@
-from context import solvers
-from solvers import directional_derivatives_interp as ddi
-from solvers.fd_pt_classes import FDRegularGrid
-
 import numpy as np
 
+import directional_derivatives_grid as ddg
+from fdclasses import FDRegularGrid
 
 # Set up computational domain
 N = 2**4-1;
@@ -34,4 +32,3 @@ else:
 d1, M1 = ddi.d1(U1,G,[1,0])
 d2, M2 = ddi.d2(U2,G,[1,0])
 (d2min, M_min), (d2max, M_max) = ddi.d2eigs(U2,G)
-

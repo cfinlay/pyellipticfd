@@ -1,9 +1,7 @@
-from context import solvers
-from solvers import directional_derivatives_grid as ddg
-from solvers.fd_pt_classes import FDRegularGrid
-
 import numpy as np
 
+import directional_derivatives_grid as ddg
+from fdclasses import FDRegularGrid
 
 # Set up computational domain
 N = 9;

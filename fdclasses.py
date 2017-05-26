@@ -7,7 +7,7 @@ from scipy.sparse import coo_matrix
 from scipy.spatial import ConvexHull
 from scipy.spatial.distance import cdist, pdist, squareform
 
-import stencils
+from stencils import create as create_stencil
 
 class FDPointCloud(object):
     """Base class for finite differences on point clouds"""
@@ -174,26 +174,34 @@ class FDPointCloud(object):
         return A.tocsr()
 
     def _remove_colinear_neighbours(self, colinear_tol):
-        D = self._VDist
-        Vs = self._V/D[:,None]
+        V = self._V
+        D = np.linalg.norm(V,axis=1)
 
         # Strip redundant directions
         def strip_neighbours(i):
             mask = self._I==i
             nb_ix = self._J[mask]
+            nv = np.sum(mask)
+            v = V[mask]
             d = D[mask]
-            vs = Vs[mask]
 
-            cos = vs.dot(vs.T)
-            check = cos > 1 - colinear_tol
-            check = np.triu(check)
+            Dc = pdist(v,'cosine')
+            check = Dc < colinear_tol
+            if np.sum(check) > 0:
+                ij = np.array(list(itertools.combinations(range(nv),2)))
+                doubles = ij[check]
 
-            ix = np.arange(nb_ix.size)
+                ix = np.arange(nv)
+                keep = ix[np.in1d(ix,doubles.flatten(),invert=True)]
 
-            keep = list({ix[r][np.argmin(d[r])] for r in check})
+                shorter = [ix[r][np.argmin(d[r])] for r in doubles]
+
+                keep = np.concatenate([shorter,keep])
+            else:
+                keep = np.arange(nv)
 
             i_array = np.full((len(keep),1),i)
-            return np.concatenate([ i_array, nb_ix[keep,None] ], -1)
+            return  np.concatenate([ i_array, nb_ix[keep,None] ], -1)
 
         self._nbs = np.concatenate([strip_neighbours(i) for i in range(self.num_points)])
 
@@ -215,10 +223,10 @@ class FDPointCloud(object):
         self._simplices = np.concatenate([get_simplices(i) for i in range(self.num_points)])
 
 class FDTriMesh(FDPointCloud):
-    """Class for interpolating finite differences on triangular meshes."""
+    """Class for finite differences on triangular meshes."""
 
     def __init__(self, p, t, angular_resolution=np.pi/4,
-            colinear_tol=1e-4, min_search=True, interpolation=True, **kwargs):
+            colinear_tol=1e-4,  interpolation=True, **kwargs):
         """Create a FDTriMesh object.
 
         Parameters
@@ -233,13 +241,9 @@ class FDTriMesh(FDPointCloud):
         colinear_tol : float
             Tolerance for detecting colinear points. Defaults to 1e-4.
             Set to False if you don't want this safety check.
-        min_search : bool
-            If False, don't remove neighbouring below the minimum search radius.
-            Only set to False if: the minimum edge length scales linearly with
-            the spatial resolution as the triangulation is refined, or if you are
-            not using interpolating finite differences.
         interpolation : bool
             If True, create simplices for interpolating finite differences.
+            If False, use Froese's finite difference method for point clouds.
         interior : array
             Indices for interior points.
         boundary : array
@@ -317,6 +321,8 @@ class FDTriMesh(FDPointCloud):
 
         if not interpolation:
             min_search=False
+        else:
+            min_search=True
         self._min_search = min_search
 
         if min_search:
@@ -424,8 +430,10 @@ class FDRegularGrid(FDPointCloud):
             Tolerance for detecting colinear points. Defaults to 1e-4.
             Set to False if you don't want this safety check.
         """
+        #TODO need minimum searcn radius to guarantee converence for interpolation method...
 
         self._r = stencil_radius
+        self._interp = interpolation
 
         dim = len(interior_shape)
         interior_shape = np.array(interior_shape)
@@ -440,14 +448,17 @@ class FDRegularGrid(FDPointCloud):
 
 
         # define appropriate stencil for calculating neighbours
-        stcl = stencils.create(stencil_radius,dim)
-
-        stcl_l1 = stcl/np.max(np.abs(stcl),axis=1)[:,None]
+        stcl = create_stencil(stencil_radius,dim)
+        stcl_l1 = stcl/np.max(np.abs(stcl),axis=1)[:,None] # normalize by maximum side length
         stcl_l1 = np.concatenate([[[0,0]],stcl_l1])
 
 
-        # Compute neighbours
-        X = Xint[:,:,None] + stcl_l1.T[None,:,:]
+        # Compute neighbours, for boundary
+        mask = np.stack([Xint[:,i] == n for i, n in enumerate(interior_shape)])
+        mask = np.logical_or( (Xint==1).any(axis=1),
+                            mask.any(axis=0))
+
+        X = Xint[mask,:,None] + stcl_l1.T[None,:,:]
         sh = X.shape
         X = np.reshape(np.rollaxis(X,2), (sh[0]*sh[2],sh[1]))
 
@@ -462,12 +473,17 @@ class FDRegularGrid(FDPointCloud):
         self.interior = np.arange(Xint.shape[0])
         self.boundary = np.arange(Xint.shape[0],Xint.shape[0]+Xb.shape[0])
 
-        d = lambda u, v : np.max(np.abs(u-v))
 
+        # Function to compute maximum side length
+        d = lambda u, v : np.max(np.abs(u-v))
         Dc = pdist(self._pts, d)
         D = squareform(Dc, checks=False)
 
-        Nb =np.logical_and(D <= stencil_radius, D>0)
+        if (stencil_radius==1 and self._interp) or (not self._interp):
+            Nb =np.logical_and(D <= stencil_radius, D>0)
+        elif stencil_radius > 1 and self._interp:
+            Nb =np.logical_and(D <= stencil_radius, D>= (stencil_radius-1) )
+
 
         self._nbs = np.concatenate([np.stack([np.full(Nb[i].sum(),i), self.indices[Nb[i]]]).T
             for i in self.indices])
@@ -482,7 +498,7 @@ class FDRegularGrid(FDPointCloud):
 
         # Get simplices
         self._simplices = None
-        if interpolation:
+        if self._interp:
             self._compute_simplices()
 
         # Scale points
@@ -533,7 +549,7 @@ class FDRegularGrid(FDPointCloud):
             return  np.concatenate([ i_array, nb_ix[pairs] ], -1)
 
         self._pairs = np.concatenate([get_pairs(i) for i in self.interior])
-    
+
     @property
     def pairs(self):
         return self._pairs

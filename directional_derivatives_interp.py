@@ -3,7 +3,7 @@
 import numpy as np
 from scipy.sparse import coo_matrix
 
-from ddutils import process_v
+from _ddutils import process_v
 
 
 def d1(u,G,v, jacobian=True, domain="interior"):

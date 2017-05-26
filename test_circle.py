@@ -1,24 +1,9 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import distmesh as dm
 from scipy.spatial import ConvexHull, Delaunay
 
-from context import solvers
-from solvers.fd_pt_classes import FDTriMesh, FDRegularGrid
-
-
-
-# Regular grid on unit square
-# ---------------------------
-N = 9;
-d = 2;
-xi = [0,1]
-
-shape = [N for i in range(d)]
-bounds = np.array([xi for i in range(d)]).T
-r = 2
-
-Gu = FDRegularGrid(shape,bounds,r)
-
+from fdclasses import FDTriMesh
 
 # Uniform grid on unit circle
 # ---------------------------
@@ -40,5 +25,21 @@ interior = np.arange(p.shape[0]-th.size)
 # Get triangulation
 dly = Delaunay(p)
 t = dly.simplices
+plt.close()
 
-Gs = FDTriMesh(p, t,  boundary=boundary, interior = interior, min_search=False)
+Gs = FDTriMesh(p, t,  boundary=boundary, interior = interior, angular_resolution=3/4*np.pi)
+plt.plot(Gs.points[:,0], Gs.points[:,1],'ro',ms=.5)
+plt.show()
+
+# Example point and neighbours
+i=8
+ix = Gs.neighbours[Gs.neighbours[:,0]==i,1]
+plt.plot(Gs.points[i,0],Gs.points[i,1],'bx')
+plt.plot(Gs.points[ix,0],Gs.points[ix,1],'bo',ms=1)
+
+ix = Gs.simplices[Gs.simplices[:,0]==i,1:]
+spts = Gs.points[ix]
+for pair in spts:
+    plt.plot(pair[:,0],pair[:,1],'k',linewidth=.5)
+
+plt.show()
