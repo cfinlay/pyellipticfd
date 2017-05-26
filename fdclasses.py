@@ -7,7 +7,7 @@ from scipy.sparse import coo_matrix
 from scipy.spatial import ConvexHull
 from scipy.spatial.distance import cdist, pdist, squareform
 
-from stencils import create as create_stencil
+import stencils
 
 class FDPointCloud(object):
     """Base class for finite differences on point clouds"""
@@ -448,7 +448,7 @@ class FDRegularGrid(FDPointCloud):
 
 
         # define appropriate stencil for calculating neighbours
-        stcl = create_stencil(stencil_radius,dim)
+        stcl = stencils.create(stencil_radius,dim)
         stcl_l1 = stcl/np.max(np.abs(stcl),axis=1)[:,None] # normalize by maximum side length
         stcl_l1 = np.concatenate([[[0,0]],stcl_l1])
 

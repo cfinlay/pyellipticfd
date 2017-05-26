@@ -3,7 +3,7 @@
 import numpy as np
 from scipy.sparse import coo_matrix
 
-from _ddutils import process_v
+import _ddutils
 
 
 def d1(u,G,v, jacobian=True, domain="interior"):
@@ -33,7 +33,7 @@ def d1(u,G,v, jacobian=True, domain="interior"):
     """
 
     # v must be an array of vectors, a direction for each point
-    v = process_v(G,v,domain=domain)
+    v = _ddutils.process_v(G,v,domain=domain)
 
     if domain=="interior":
         Ix = G.interior
@@ -130,7 +130,7 @@ def d2(u,G,v,jacobian=True):
         Finite difference matrix. Only returned if jacobian==True
     """
     # v must be an array of vectors, a direction for each interior point
-    v = process_v(G,v)
+    v = _ddutils.process_v(G,v)
 
     # Get finite difference simplices on interior
     mask = np.in1d(G.simplices[:,0], G.interior)
