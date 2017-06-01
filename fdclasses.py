@@ -7,7 +7,7 @@ from scipy.sparse import coo_matrix
 from scipy.spatial import ConvexHull
 from scipy.spatial.distance import cdist, pdist, squareform
 
-import stencils
+from pyellipticfd import stencils
 
 class FDPointCloud(object):
     """Base class for finite differences on point clouds"""
@@ -115,8 +115,16 @@ class FDPointCloud(object):
         return self.num_vertices
 
     @property
+    def interior_points(self):
+        return self._pts[self.interior]
+
+    @property
     def num_interior(self):
         return self.interior.size
+
+    @property
+    def boundary_points(self):
+        return self._pts[self.boundary]
 
     @property
     def num_boundary(self):

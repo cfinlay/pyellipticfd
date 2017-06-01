@@ -1,3 +1,5 @@
+"""Functions to create finite difference stencils on regular grids."""
+
 import numpy as np
 import math
 

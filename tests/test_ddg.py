@@ -1,7 +1,7 @@
 import numpy as np
 
-import directional_derivatives_grid as ddg
-from fdclasses import FDRegularGrid
+from pyellipticfd import ddg
+from pyellipticfd.fdclasses import FDRegularGrid
 
 # Set up computational domain
 N = 9;
@@ -29,6 +29,6 @@ else:
     th = np.array([1/3,1/4,1/7])
     th /= np.linalg.norm(th)
 
-d2, M2 = ddg.d2(U2,G,[1,0])
-d1, M1 = ddg.d1(U1,G,[0,1])
-d2eigs = ddg.d2eigs(U2,G)
+d2, M2 = ddg.d2(G,[1,0],U2, jacobian=True)
+d1, M1 = ddg.d1(G,[0,1],U1, jacobian=True)
+(d2min, M_min), (d2max, M_max) = ddg.d2eigs(G,U2, jacobian=True)

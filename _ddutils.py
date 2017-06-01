@@ -1,3 +1,5 @@
+"""Utility functions for directional derivative routines."""
+
 import numpy as np
 
 

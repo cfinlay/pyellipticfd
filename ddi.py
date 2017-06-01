@@ -3,23 +3,23 @@
 import numpy as np
 from scipy.sparse import coo_matrix
 
-import _ddutils
+from pyellipticfd import _ddutils
 
-
-def d1(u,G,v, jacobian=True, domain="interior"):
+def d1(G,v, u=None, jacobian=False, domain="interior"):
     """
     Compute the directional derivative of u, in direction v.
 
     Parameters
     ----------
-    u : array_like
-        Function values at grid points.
     G : FDPointCloud
         The mesh of grid points.
     v : array_like
-        Direction to take second derivative.
+        Direction to take firt derivative.
+    u : array_like
+        Function values at grid points. If not specified, only the Jacobian
+        is returned.
     jacobian : boolean
-        Switch, whether to compute the Jacobian
+        Whether to also return the Jacobian M.
     domain : string
         Which nodes to compute derivative on: one of "interior",
         "boundary", or "all". If not specified, defaults to "interior".
@@ -29,8 +29,11 @@ def d1(u,G,v, jacobian=True, domain="interior"):
     d1u : array_like
         First derivative in the direction v.
     M : scipy csr_matrix
-        Finite difference matrix. Only returned if jacobian==True
+        Finite difference matrix. Only returned if jacobian is True, or if u is
+        not specified.
     """
+    if u is None:
+        jacobian = True
 
     # v must be an array of vectors, a direction for each point
     v = _ddutils.process_v(G,v,domain=domain)
@@ -77,16 +80,18 @@ def d1(u,G,v, jacobian=True, domain="interior"):
 
         i_f = s[mask_f][0][1:]
 
-        u_f = u[i_f].dot(xi_f)
+        if u is not None:
+            u_f = u[i_f].dot(xi_f)
+            d1u = -u[k]/h+u_f
+        else:
+            d1u = None
 
-        d1u = -u[k]/h+u_f
-
-        if jacobian==True:
+        if jacobian is True:
             # Compute FD matrix, as COO scipy sparse matrix data
             j = np.concatenate([np.array([k]),i_f])
             i = np.full(j.shape,k, dtype = np.intp)
-            val = np.concatenate([np.array([-1])/h, xi_f])
-            coo = (val,i,j)
+            value = np.concatenate([np.array([-1])/h, xi_f])
+            coo = (value,i,j)
         else:
             coo=None
 
@@ -94,41 +99,50 @@ def d1(u,G,v, jacobian=True, domain="interior"):
 
     D1 = [d1(k) for k in Ix]
 
-    d1u = np.array([tup[0] for tup in D1])
+    if u is not None:
+        d1u = np.array([tup[0] for tup in D1])
 
-    if jacobian==True:
+    if jacobian is True:
         i = np.concatenate([tup[1][1] for tup in D1])
         j = np.concatenate([tup[1][2] for tup in D1])
-        val = np.concatenate([tup[1][0] for tup in D1])
-        M = coo_matrix((val, (i,j)), shape = [G.num_nodes]*2).tocsr()
+        value = np.concatenate([tup[1][0] for tup in D1])
+        M = coo_matrix((value, (i,j)), shape = [G.num_nodes]*2).tocsr()
         M = M[M.getnnz(1)>0]
 
+    if (u is not None) and (jacobian is True):
         return d1u, M
-    else:
+    elif jacobian is False:
         return d1u
+    else:
+        return M
 
-def d2(u,G,v,jacobian=True):
+def d2(G,v,u=None,jacobian=False):
     """
     Compute the second directional derivative of u, in direction v.
 
     Parameters
     ----------
-    u : array_like
-        Function values at grid points.
-    G : FDPointCloud
+    G : FDGraph
         The mesh of grid points.
     v : array_like
         Direction to take second derivative.
+    u : array_like
+        Function values at grid points. If not specified, only the Jacobian
+        is returned.
     jacobian : boolean
-        Switch, to compute the Jacobian
+        Whether to also return the Jacobian M.
 
     Returns
     -------
     d2u : array_like
-        Second derivative in the direction v.
+        Second derivative value in the direction v. Only returned if u is specified.
     M : scipy csr_matrix
-        Finite difference matrix. Only returned if jacobian==True
+        Finite difference matrix. Only returned if jacobian is True, or if u is
+        not specified.
     """
+    if u is None:
+        jacobian = True
+
     # v must be an array of vectors, a direction for each interior point
     v = _ddutils.process_v(G,v)
 
@@ -167,17 +181,20 @@ def d2(u,G,v,jacobian=True):
         i_f = s[mask_f][0][1:]
         i_b = s[mask_b][0][1:]
 
-        u_f = u[i_f].dot(xi_f)
-        u_b = u[i_b].dot(-xi_b)
+        if u is not None:
+            u_f = u[i_f].dot(xi_f)
+            u_b = u[i_b].dot(-xi_b)
 
-        d2u = 2/(h_b+h_f)*(u_f + u_b - u[k]*(1/h_f + 1/h_b) )
+            d2u = 2/(h_b+h_f)*(u_f + u_b - u[k]*(1/h_f + 1/h_b) )
+        else:
+            d2u=None
 
-        if jacobian==True:
+        if jacobian is True:
             # Compute FD matrix, as COO scipy sparse matrix data
             j = np.concatenate([np.array([k]),i_f, i_b])
             i = np.full(j.shape,k, dtype = np.intp)
-            val = np.concatenate([np.array([-(1/h_f + 1/h_b)]), xi_f, -xi_b])*2/(h_f+h_b)
-            coo = (val,i,j)
+            value = np.concatenate([np.array([-(1/h_f + 1/h_b)]), xi_f, -xi_b])*2/(h_f+h_b)
+            coo = (value,i,j)
         else:
             coo=None
 
@@ -185,40 +202,44 @@ def d2(u,G,v,jacobian=True):
 
     D2 = [d2(k) for k in G.interior]
 
-    d2u = np.array([tup[0] for tup in D2])
+    if u is not None:
+        d2u = np.array([tup[0] for tup in D2])
 
-    if jacobian==True:
+    if jacobian is True:
         i = np.concatenate([tup[1][1] for tup in D2])
         j = np.concatenate([tup[1][2] for tup in D2])
-        val = np.concatenate([tup[1][0] for tup in D2])
-        M = coo_matrix((val, (i,j)), shape = [G.num_nodes]*2).tocsr()
+        value = np.concatenate([tup[1][0] for tup in D2])
+        M = coo_matrix((value, (i,j)), shape = [G.num_nodes]*2).tocsr()
         M = M[M.getnnz(1)>0]
 
+    if (u is not None) and (jacobian is True):
         return d2u, M
-    else:
+    elif jacobian is False:
         return d2u
+    else:
+        return M
 
 
-def d2eigs(u,G,jacobian=True):
+def d2eigs(G,u,jacobian=False):
     """
-    Compute the maximum and minimum eigenvalues of the Hessian of U.
+    Compute the eigenvalues of the Hessian of U.
 
     Parameters
     ----------
-    u : array_like
-        Function values at grid points.
     G : FDPointCloud
         The mesh of grid points.
-    eigs : string
-        Specify which eigenvalue to retrieve: "min", "max", or "all".
+    u : array_like
+        Function values at grid points.
     jacobian : boolean
-        Whether to compute the Jacobian or not.
+        Whether to return the Jacobians for each eigenvalue.
 
     Returns
     -------
     Lambda : tuple
-        Respectively, the minimal and maximal eigenvalues. If Jacobian is True,
-        the Jacobians are also returned.
+        Respectively the minimal and maximal eigenvalues.
+        If jacobian is True, the Jacobians (scipy sparse matrices M) are
+        returned as well, and the maximal and minimal eigenvalues are each a tuple
+        containing both the operator value, and the Jacobian.
     """
 
     if G.dim==3:
@@ -276,7 +297,7 @@ def d2eigs(u,G,jacobian=True):
 
         d2min, d2max = d2u[[imin,imax]]
 
-        if jacobian==True:
+        if jacobian is True:
             # Compute FD matrix, as COO scipy sparse matrix data
             j_min = np.concatenate([np.array([k]),S_f[imin], S_b[imin]])
             i_min = np.full(j_min.shape,k, dtype = np.intp)
@@ -295,10 +316,11 @@ def d2eigs(u,G,jacobian=True):
         return (d2min,coo_min), (d2max,coo_max)
 
     e = [eigs(k) for k in G.interior]
+
     d2min = np.array([tup[0][0] for tup in e])
     d2max = np.array([tup[1][0] for tup in e])
 
-    if jacobian==True:
+    if jacobian is True:
         i_min = np.concatenate([tup[0][1][1] for tup in e])
         j_min = np.concatenate([tup[0][1][2] for tup in e])
         val_min = np.concatenate([tup[0][1][0] for tup in e])
@@ -313,16 +335,16 @@ def d2eigs(u,G,jacobian=True):
 
         return (d2min, M_min), (d2max, M_max)
     else:
-        return d2min, d2max
+        return lambda_min, lambda_max
 
 
-def d2min(u,G,**kwargs):
+def d2min(G,u,**kwargs):
     """
     Compute the minimum eigenvalues of the Hessian of u.
     """
     return d2eigs(u,G,**kwargs)[0]
 
-def d2max(u,G,**kwargs):
+def d2max(G,u,**kwargs):
     """
     Compute the maximum eigenvalues of the Hessian of u.
     """

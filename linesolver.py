@@ -63,4 +63,3 @@ def convex_linesolver(U,stencil=np.array([[0,1],[1,0]])):
             for i in range(1,Ny):
                 U_ce = convex_linesolver_line(Nx,Ny,U_ce,v,0,i)
     return U_ce
-
