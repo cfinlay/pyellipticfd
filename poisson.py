@@ -5,7 +5,7 @@ import scipy.sparse as sparse
 from pyellipticfd import ddi, ddg, solvers
 
 def solve(Grid,f,g,U0=None,fdmethod='interpolate',
-          solver="euler",**kwargs):
+          solver="newton",**kwargs):
     """
     Solve the Poisson equation
     \[
@@ -65,23 +65,22 @@ def solve(Grid,f,g,U0=None,fdmethod='interpolate',
     Lap = np.sum(D2)
     dt = -1/Lap.diagonal().min()
 
+    Grad = sparse.eye(Grid.num_points,format='csr')
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        Grad[Grid.interior]=-Lap
+
     def F(W,jacobian=True):
         LW = -Lap.dot(W) - f
-        Wb = W[Grid.boundary] - g
+        HW = W[Grid.boundary] - g
 
         FW = np.zeros(Grid.num_points)
         FW[Grid.interior] = LW
-        FW[Grid.boundary] = Wb
+        FW[Grid.boundary] = HW
 
         if not jacobian:
             return FW
         else:
-            Grad = sparse.eye(Grid.num_points,format='csr')
-            # TODO: deal with sparsity structure warning
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                Grad[Grid.interior]=-Lap
-
             return FW, Grad
 
 

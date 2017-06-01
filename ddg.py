@@ -196,7 +196,7 @@ def d2(G,v,u=None,jacobian=False):
     else:
         return M
 
-def d2eigs(G,u,jacobian=False):
+def d2eigs(G,u,jacobian=False,control=False):
     """
     Compute the eigenvalues of the Hessian of U.
 
@@ -207,15 +207,15 @@ def d2eigs(G,u,jacobian=False):
     u : array_like
         Function values at grid points.
     jacobian : boolean
-        Whether to return the Jacobians for each eigenvalue.
+        Whether to return the Jacobian (finite difference matrix) for each eigenvalue.
+    control : boolean
+        Whether to return the directions of the eigenvalues.
 
     Returns
     -------
-    Lambda : tuple
+    lambda_min, lambda_max 
         Respectively the minimal and maximal eigenvalues.
-        If jacobian is True, the Jacobians (scipy sparse matrices M) are
-        returned as well, and the maximal and minimal eigenvalues are each a tuple
-        containing both the operator value, and the Jacobian.
+        These are tuples if either jacobian or control is true.
     """
 
     # Center point index, and stencil neighbours
@@ -224,25 +224,36 @@ def d2eigs(G,u,jacobian=False):
     X = G.vertices[J] - G.vertices[I,None] # The stencil vectors
     Xnorm = np.linalg.norm(X,axis=2)
 
+    if control is True:
+        V = X[:,0,:]/Xnorm[:,0,None]
+
     u_bc = u[G.pairs]
     weight = (2*np.array([-np.sum(Xnorm,axis=1),Xnorm[:,1],Xnorm[:,0]]).T /
                 ( np.sum((Xnorm**2)*Xnorm[:,[1,0]],axis=1)[:,None] ) )
 
     d2u = np.sum(weight*u_bc, axis=1)
 
-    if jacobian is True:
-        def eigs(k):
-            mask = I==k
-            d2 = d2u[mask]
-            w = weight[mask]
-            ix = np.argsort(d2)
-            return d2[ix[[0,-1]]], G.pairs[mask][ix[[0,-1]]], w[ix[[0,-1]]]
-    else:
-        def eigs(k):
-            mask = I==k
-            d2 = d2u[mask]
-            ix = np.argsort(d2)
-            return tuple([ d2[ix[[0,-1]]] ])
+    def eigs(k):
+        mask = I==k
+        d2 = d2u[mask]
+        
+        ix = np.argsort(d2)
+        ix = ix[[0,-1]] # indices of the smallest and largest eigenvalue directons
+
+        d2 = d2[ix]
+
+        if jacobian is True:
+            pairs = G.pairs[mask][ix]
+            w = weight[mask][ix]
+        else:
+            pairs_, w_ = [None]*2
+
+        if control is True:
+            v = V[mask][ix]
+        else:
+            v = None
+
+        return (d2, pairs, w, v)
 
 
     data = [eigs(k) for k in G.interior]
@@ -264,6 +275,15 @@ def d2eigs(G,u,jacobian=False):
         M_max = coo_matrix((w_max.flatten(), (i,j_max.flatten())), shape = [G.num_nodes]*2).tocsr()
         M_max = M_max[M_max.getnnz(1)>0]
 
+    if control is True:
+        v_min = np.array([tup[3][0] for tup in data])
+        v_max = np.array([tup[3][1] for tup in data])
+
+    if control is True and jacobian is True:
+        return (lambda_min, M_min, v_min), (lambda_max, M_max, v_max)
+    elif control is True and jacobian is False:
+        return (lambda_min, v_min), (lambda_max, v_max)
+    elif control is False and jacobian is True:
         return (lambda_min, M_min), (lambda_max, M_max)
     else:
         return lambda_min, lambda_max

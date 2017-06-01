@@ -220,7 +220,7 @@ def d2(G,v,u=None,jacobian=False):
         return M
 
 
-def d2eigs(G,u,jacobian=False):
+def d2eigs(G,u,jacobian=False, control=False):
     """
     Compute the eigenvalues of the Hessian of U.
 
@@ -232,14 +232,14 @@ def d2eigs(G,u,jacobian=False):
         Function values at grid points.
     jacobian : boolean
         Whether to return the Jacobians for each eigenvalue.
+    control : boolean
+        Whether to return the directions of the eigenvalues.
 
     Returns
     -------
-    Lambda : tuple
+    lambda_min, lambda_max
         Respectively the minimal and maximal eigenvalues.
-        If jacobian is True, the Jacobians (scipy sparse matrices M) are
-        returned as well, and the maximal and minimal eigenvalues are each a tuple
-        containing both the operator value, and the Jacobian.
+        These are tuples if either jacobian or control is true.
     """
 
     if G.dim==3:
@@ -313,7 +313,13 @@ def d2eigs(G,u,jacobian=False):
         else:
             coo_min, coo_max = [None]*2
 
-        return (d2min,coo_min), (d2max,coo_max)
+        if control is True:
+            v_min = V_[:,imin]
+            v_max = V_[:,imax]
+        else:
+            v_min, v_max = [None]*2
+
+        return (d2min,coo_min, v_min), (d2max,coo_max, v_max)
 
     e = [eigs(k) for k in G.interior]
 
@@ -333,9 +339,18 @@ def d2eigs(G,u,jacobian=False):
         M_max = coo_matrix((val_max, (i_max,j_max)), shape = [G.num_nodes]*2).tocsr()
         M_max = M_max[M_max.getnnz(1)>0]
 
+    if control is True:
+        v_min = np.array([tup[0][2] for tup in e])
+        v_max = np.array([tup[1][2] for tup in e])
+
+    if control is True and jacobian is True:
+        return (d2min, M_min, v_min), (d2max, M_max, v_max)
+    elif control is True and jacobian is False:
+        return (d2min, v_min), (d2max, v_max)
+    elif control is False and jacobian is True:
         return (d2min, M_min), (d2max, M_max)
     else:
-        return lambda_min, lambda_max
+        return d2min, d2max
 
 
 def d2min(G,u,**kwargs):

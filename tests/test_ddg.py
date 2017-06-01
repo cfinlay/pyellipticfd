@@ -31,4 +31,4 @@ else:
 
 d2, M2 = ddg.d2(G,[1,0],U2, jacobian=True)
 d1, M1 = ddg.d1(G,[0,1],U1, jacobian=True)
-(d2min, M_min), (d2max, M_max) = ddg.d2eigs(G,U2, jacobian=True)
+(d2min, M_min, v_min), (d2max, M_max, v_max) = ddg.d2eigs(G,U2, jacobian=True, control=True)
