@@ -90,7 +90,7 @@ def newton(U,operator,CFL,solution_tol=1e-4,max_iters=1e2,
     """
     t0 = time.time()
 
-    if max_euler_iterations is None:
+    if max_euler_iters is None:
         max_euler_iters=U.size
 
     for i in itertools.count(1):
@@ -119,7 +119,7 @@ def newton(U,operator,CFL,solution_tol=1e-4,max_iters=1e2,
         if (max_euler_iters is not 0) or (timeout is not None):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                U, ei, diff = euler(U, lambda U : operator(U, getGrad=False),
+                U, diff, _, _ = euler(U, lambda U : operator(U, jacobian=False),
                                     CFL, solution_tol, max_iters=max_euler_iters,
                                     timeout=timeout)
 
@@ -183,7 +183,7 @@ def policy(U,getF,getPolicy,CFL,solution_tol=1e-4,max_iters=1e5,
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            U, euler_iters, solution_diff = euler(U,F,CFL,
+            U, solution_diff, euler_iters,  _ = euler(U,F,CFL,
                                                    solution_tol = euler_tol,
                                                    max_iters = max_euler_iters)
 

@@ -155,7 +155,7 @@ def newton_method(G,dx,**kwargs):
     ix_int = np.ravel_multi_index((I[1:-1,1:-1],J[1:-1,1:-1]),G.shape)
     ix_int = np.reshape(ix_int,ix_int.size)
 
-    def operator(U,getGrad=True):
+    def operator(U,jacobian=True):
         lambda1, Ix = ddg.d2min(U,dx)
 
         M = fdm.d2(G.shape, dx, ddg.stencil, Ix)
@@ -165,7 +165,7 @@ def newton_method(G,dx,**kwargs):
         b = -lambda1 > Fu_int
         Fu_int[b] = -lambda1[b]
 
-        if getGrad:
+        if jacobian:
             Fu = Fu.reshape(Fu.size)
             b = np.reshape(b,b.size)
 
