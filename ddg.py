@@ -80,14 +80,14 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         h = np.linalg.norm(x)
 
         if u is not None:
-            d1u = u[nbs].dot([-1, 1])/h
+            d1u = u[nbs].dot([1, -1])/h
         else:
             d1u = None
 
         if jacobian is True:
             # Compute FD matrix, as COO scipy sparse matrix data
             i = np.full(2, k, dtype = np.intp)
-            value = np.array([-1, 1])/h
+            value = np.array([1, -1])/h
             coo = (value,i,nbs)
         else:
             coo=None
@@ -112,6 +112,32 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         return d1u
     else:
         return M
+
+def d1n(G,u=None,**kwargs):
+    """
+    Compute the directional derivative with respect to the outward normal direction
+    of the boundary of the domain. If no function is given, then the Jacobian
+    is returned.
+
+    Parameters
+    ----------
+    G : FDPointCloud
+        The mesh of grid points.
+    u : array_like
+        Function values at grid points. If not specified, only the Jacobian
+        is returned.
+    jacobian : boolean
+        Whether to also return the Jacobian M.
+
+    Returns
+    -------
+    d1u : array_like
+        First derivative in the direction v.
+    M : scipy csr_matrix
+        Finite difference matrix. Only returned if jacobian is True, or if u is
+        not specified.
+    """
+    return d1(G, -G.boundary_normals, u=u, domain='boundary', **kwargs)
 
 def d2(G,v,u=None,jacobian=False):
     """
@@ -213,7 +239,7 @@ def d2eigs(G,u,jacobian=False,control=False):
 
     Returns
     -------
-    lambda_min, lambda_max 
+    lambda_min, lambda_max
         Respectively the minimal and maximal eigenvalues.
         These are tuples if either jacobian or control is true.
     """
@@ -236,7 +262,7 @@ def d2eigs(G,u,jacobian=False,control=False):
     def eigs(k):
         mask = I==k
         d2 = d2u[mask]
-        
+
         ix = np.argsort(d2)
         ix = ix[[0,-1]] # indices of the smallest and largest eigenvalue directons
 

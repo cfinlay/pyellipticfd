@@ -19,7 +19,7 @@ class FDPointCloud(object):
     def __init__(self, vertices, angular_resolution=None,
             spatial_resolution=None, neighbours=None,
             boundary_resolution=None, dist_to_boundary=None,
-            interior=None, boundary=None):
+            interior=None, boundary=None, boundary_normals=None):
         """Initialize a finite difference point cloud.
 
         Parameters
@@ -45,6 +45,8 @@ class FDPointCloud(object):
             Indices for interior points.
         boundary : array_like
             Indices for boundary points.
+        boundary_normals : array_like
+            Array of outward pointing normals on the boundary.
         """
 
         if angular_resolution is None:
@@ -60,6 +62,7 @@ class FDPointCloud(object):
         self._delta = dist_to_boundary
         self._nbs = neighbours
         self._simplices = None
+        self._normals = boundary_normals
 
         if not interior is None:
             self.interior = interior
@@ -129,6 +132,10 @@ class FDPointCloud(object):
     @property
     def num_boundary(self):
         return self.boundary.size
+
+    @property
+    def boundary_normals(self):
+        return self._normals
 
     @property
     def bbox(self):
@@ -256,6 +263,8 @@ class FDTriMesh(FDPointCloud):
             Indices for interior points.
         boundary : array
             Indices for boundary points.
+        boundary_normals : array_like
+            Array of outward pointing normals on the boundary.
         """
 
         super().__init__(p, angular_resolution=angular_resolution, **kwargs)
@@ -481,6 +490,7 @@ class FDRegularGrid(FDPointCloud):
         self.interior = np.arange(Xint.shape[0])
         self.boundary = np.arange(Xint.shape[0],Xint.shape[0]+Xb.shape[0])
 
+        #TODO: normals
 
         # Function to compute maximum side length
         d = lambda u, v : np.max(np.abs(u-v))

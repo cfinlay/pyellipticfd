@@ -32,6 +32,7 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         Finite difference matrix. Only returned if jacobian is True, or if u is
         not specified.
     """
+
     if u is None:
         jacobian = True
 
@@ -45,7 +46,7 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
     else:
         Ix = np.arange(G.num_nodes)
 
-    # Get finite difference simplices on interior
+    # Get finite difference simplices on correct domain
     if not (domain=="boundary" or domain=="interior"):
         I, S = G.simplices[:,0], G.simplices[:,1:]
     else:
@@ -73,16 +74,30 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         x = X[mask]   # stencil vectors
         s = simplices[mask] # simplex indices
 
-        # Forward direction
-        mask_f = np.squeeze((xi>=0).all(axis=1)) # Farkas' lemma
-        xi_f =  xi[mask_f][0]
-        h = 1/np.sum(xi_f)
+        mask_f = (xi>=0).all(axis=1) # Farkas' lemma
 
-        i_f = s[mask_f][0][1:]
+        # If the centre point is not on the boundary,
+        # choose the first available simplex.
+        if np.in1d(k,G.interior).all():
+            xi_f =  xi[mask_f][0] # Neighbour weights
+            i_f = s[mask_f][0][1:] # index of neighbours
+        else:
+            # Otherwise we need to be a bit more careful.
+            in_boundary = np.in1d(s[mask_f,1:],G.boundary)
+            mask_boundary = in_boundary.reshape((sum(mask_f),G.dim))
+            mask_interior = np.logical_not(mask_boundary.all(axis=1))
+
+            i_f = s[mask_f]
+            i_f = np.squeeze(i_f[mask_interior,1:])
+
+            xi_f = xi[mask_f]
+            xi_f = np.squeeze(xi_f[mask_interior])
+
+        h = 1/np.sum(xi_f)  # distance to interpolation point
 
         if u is not None:
             u_f = u[i_f].dot(xi_f)
-            d1u = -u[k]/h+u_f
+            d1u = u[k]/h-u_f
         else:
             d1u = None
 
@@ -90,10 +105,11 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
             # Compute FD matrix, as COO scipy sparse matrix data
             j = np.concatenate([np.array([k]),i_f])
             i = np.full(j.shape,k, dtype = np.intp)
-            value = np.concatenate([np.array([-1])/h, xi_f])
+            value = -np.concatenate([np.array([-1])/h, xi_f])
             coo = (value,i,j)
         else:
             coo=None
+
 
         return  d1u, coo
 
@@ -115,6 +131,32 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         return d1u
     else:
         return M
+
+def d1n(G,u=None,**kwargs):
+    """
+    Compute the directional derivative with respect to the outward normal direction
+    of the boundary of the domain. If no function is given, then the Jacobian
+    is returned.
+
+    Parameters
+    ----------
+    G : FDPointCloud
+        The mesh of grid points.
+    u : array_like
+        Function values at grid points. If not specified, only the Jacobian
+        is returned.
+    jacobian : boolean
+        Whether to also return the Jacobian M.
+
+    Returns
+    -------
+    d1u : array_like
+        First derivative in the direction v.
+    M : scipy csr_matrix
+        Finite difference matrix. Only returned if jacobian is True, or if u is
+        not specified.
+    """
+    return d1(G, -G.boundary_normals, u=u, domain='boundary', **kwargs)
 
 def d2(G,v,u=None,jacobian=False):
     """
