@@ -285,7 +285,7 @@ def d2eigs(G,u,jacobian=False, control=False):
     """
 
     if G.dim==3:
-        raise TypeError("Eigenvalues not yet implemented in 3d.")
+        raise NotImplementedError("Eigenvalues not yet implemented in 3d.")
 
     # number of directions to take, per stencil
     Nds = np.ceil(1/G.angular_resolution) # effectively dtheta^2

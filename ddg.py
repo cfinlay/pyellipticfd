@@ -139,6 +139,93 @@ def d1n(G,u=None,**kwargs):
     """
     return d1(G, -G.boundary_normals, u=u, domain='boundary', **kwargs)
 
+def d1grad(G,u=None,jacobian=False,control=False):
+    """
+    Compute the first derivative of U in the direction of the gradient.
+
+    Parameters
+    ----------
+    G : FDPointCloud
+        The mesh of grid points.
+    u : array_like
+        Function values at grid points.
+    jacobian : boolean
+        If True, also return the Jacobian (finite difference matrix).
+    control : boolean
+        If True, also return the gradient direction.
+
+    Returns
+    -------
+    d1grad : array_like
+        The value of the first derivative of U in the gradient direction.
+    M : scipy csr_matrix
+        Finite difference matrix. Only returned if jacobian is True.
+    v : array_like
+        The gradient direction. Only returned if control is True.
+    """
+    # Center point index, and stencil neighbours
+    I, J = G.neighbours[:,0], G.neighbours[:,1]
+
+    X = G.vertices[J] - G.vertices[I] # The stencil vectors
+    Xnorm = np.linalg.norm(X,axis=1)
+
+    if control is True:
+        V = X/Xnorm[:,None]
+
+    u_bc = u[G.neighbours]
+    dx = 1/Xnorm
+    weight = np.array([-dx,dx]).T
+
+    d1u = np.sum(weight*u_bc, axis=1)
+
+    def grad(k):
+        mask = I==k
+        d1 = d1u[mask]
+
+        ix = np.argsort(d1)
+        ix = ix[-1] # index of the largest directional derivative
+
+        d1 = d1[ix]
+
+        if jacobian is True:
+            neighbours = G.neighbours[mask][ix]
+            w = weight[mask][ix]
+        else:
+            pairs_, w_ = [None]*2
+
+        if control is True:
+            v = V[mask][ix]
+        else:
+            v = None
+
+        return (d1, neighbours, w, v)
+
+
+    data = [grad(k) for k in G.interior]
+
+    d1_max = np.array([tup[0] for tup in data])
+
+    if jacobian is True:
+        j = np.array([tup[1] for tup in data])
+        w = np.array([tup[2] for tup in data])
+
+        i = np.repeat(j[:,0],2)
+
+        M = coo_matrix((w.flatten(), (i,j.flatten())), shape = [G.num_nodes]*2).tocsr()
+        M = M[M.getnnz(1)>0]
+
+    if control is True:
+        v = np.array([tup[3] for tup in data])
+
+    if control is True and jacobian is True:
+        return d1_max, M, v
+    elif control is True and jacobian is False:
+        return d1_max, v
+    elif control is False and jacobian is True:
+        return d1_max, M
+    else:
+        return d1_max
+
 def d2(G,v,u=None,jacobian=False):
     """
     Compute the second directional derivative of u, in direction v.
