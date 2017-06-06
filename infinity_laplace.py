@@ -7,16 +7,16 @@ from scipy.sparse.linalg import spsolve, lsmr
 from pyellipticfd import ddi, ddg, solvers
 
 def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
-          solver="direct",fredholm_tol = None,**kwargs):
+          solver="newton",**kwargs):
     r"""
-    Solve either the Poisson equation with Dirichlet BC
+    Solve either the infinity Laplacian with Dirichlet BC
     \[
-        -\Delta u = f, \,x \in \Omega \\
-                u = g, \,x \in \partal \Omega,
+        -\Delta_\infty u = f, \,x \in \Omega \\
+                       u = g, \,x \in \partal \Omega,
     \]
-    or the Poisson problem with Neumann BC
+    or with Neumann BC
     \[
-        -\Delta u = f, \,x \in \Omega \\
+        -\Delta_infty u = f, \,x \in \Omega \\
         \frac{\partial u}{\partial n} = h,\, x \in \partal \Omega.
     \]
 
@@ -35,10 +35,7 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
     fdmethod : string
         Which finite difference method to use. Either 'interpolate' or 'grid'.
     solver : string
-        Which solver to use. Either 'euler' or 'direct'.
-    fredholm_tol : scalar
-        Threshold for determining if the Fredholm alternative is satisfied.
-        If set to None, no check is performed.
+        Which solver to use. Either 'euler' or 'newton'.
     **kwargs
         Additional arguments to be passed to the solver.
 
@@ -71,29 +68,11 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
     if callable(h):
         h = h(Grid.boundary_points)
 
-
-    # Construct the finite difference operators
-    if fdmethod=='interpolate':
-        D2 = [ddi.d2(Grid,e) for e in np.identity(Grid.dim)]
-    elif fdmethod=='grid':
-        D2 = [ddg.d2(Grid,e) for e in np.identity(Grid.dim)]
-    Lap = np.sum(D2)
-
     if h is not None:
         if fdmethod=='interpolate':
             d1n = ddi.d1(Grid, -Grid.boundary_normals, domain='boundary')
         elif fdmethod=='grid':
             d1n = ddg.d1(Grid, -Grid.boundary_normals, domain='boundary')
-
-    # Finite difference matrix over the whole domain
-    Jac = sparse.eye(Grid.num_points,format='csr')
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        Jac[Grid.interior]=-Lap
-    if h is not None:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            Jac[Grid.boundary] = d1n
 
     # Forcing function over the whole domain
     F = np.zeros(Grid.num_points)
@@ -103,17 +82,49 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
         F[Grid.boundary] = g
     F[Grid.interior] = f
 
-    # Check that the system is consistent
-    if fredholm_tol is not None:
-        rho = spsolve(Jac.transpose(),np.zeros(Grid.num_points))
-        rdotF =rho.dot(F)
-        if rdotF > fredholm_tol:
-            err = ("The problem is ill posed."
-                    "\nForcing function does not satisfy the Fredholm alternative")
-            raise ValueError(err)
+    # Operator over whole domain
+    def G(W, jacobian=True):
+        if fdmethod=='interpolate':
+            P = ddi.d1grad(Grid,u,control=True,jacobian=jacobian)
+            M = ddi.d1grad(Grid,-u, control=True,jacobian=jacobian)
+        elif fdmethod=='grid':
+            P = ddg.d1grad(Grid,u,control=True,jacobian=jacobian)
+            M = ddg.d1grad(Grid,-u, control=True,jacobian=jacobian)
+        d1p, d1m = P[0], -M[0]
+        if jacobian is False:
+            vpn = np.linalg.norm(P[1],axis=1)
+            vmn = np.linalg.norm(M[1],axis=1)
+        else:
+            vpn = np.linalg.norm(P[2],axis=1)
+            vmn = np.linalg.norm(M[2],axis=1)
+
+        scaling = 2/(vpn + vmn)
+        inf_Lap = scaling*(d1p + d1m)
+
+        GW = np.zeros(Grid.num_points)
+        GW[Grid.interior] = -inf_Lap
+        GW[Grid.boundary] = d1n.dot(W)
+
+        if jacobian is False:
+            return GW - F
+        else:
+            Dm, Pm = M[1], P[1]
+
+            # Fintite difference matrix
+            Jac = sparse.eye(Grid.num_points,format='csr')
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                Jac[Grid.interior]=(-sparse.diags(scaling)).dot(Dm+Dp)
+            if h is not None:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    Jac[Grid.boundary] = d1n
+
+            return GW - F, Jac
+
 
     if solver=="euler":
-        dt = 1/np.max(np.abs(Jac.diagonal())) # CFL condition
+        dt = 1/(2*np.max(Grid.min_edge_length, Grid.min_radius)**2) # CFL condition
 
         # Initial guess
         if U0 is None and g is not None:
@@ -121,10 +132,6 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
             U0[Grid.boundary] = g
         elif U0 is None:
             U0 = np.ones(Grid.num_points)
-
-        # Operator over whole domain
-        def G(W):
-            return Jac.dot(W) - F
 
         if h is not None:
             # With Neumann conditions, return the solution with zero mean
@@ -135,14 +142,11 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
 
         return U, t
 
-    elif solver=="direct":
+    elif solver=="newton":
         t0 = time.time()
 
         if h is not None:
             # With Neumann BC, choose the solution with smallest L2 norm
-            opt = lsmr(Jac, F, **kwargs)
-            U = opt[0]
+            return solvers.newton(U0, G, dt, solver='lsmr',**kwargs)
         else:
-            U = spsolve(Jac,F, **kwargs)
-
-        return U, time.time() - t0
+            return solvers.newton(U0, G, dt, **kwargs)

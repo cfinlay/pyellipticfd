@@ -158,6 +158,113 @@ def d1n(G,u=None,**kwargs):
     """
     return d1(G, -G.boundary_normals, u=u, domain='boundary', **kwargs)
 
+def d1grad(G,u,jacobian=False,control=False):
+    """
+    Compute the first derivative of U in the direction of the gradient,
+    on the interior of the domain.
+
+    Parameters
+    ----------
+    G : FDPointCloud
+        The mesh of grid points.
+    u : array_like
+        Function values at grid points.
+    jacobian : boolean
+        If True, also return the Jacobian (finite difference matrix).
+    control : boolean
+        If True, also return the gradient direction.
+
+    Returns
+    -------
+    d1_max : array_like
+        The value of the first derivative of U in the gradient direction.
+    M : scipy csr_matrix
+        Finite difference matrix. Only returned if jacobian is True.
+    v : array_like
+        The gradient direction. Only returned if control is True.
+    """
+
+    if G.dim==3:
+        raise NotImplementedError("Eigenvalues not yet implemented in 3d.")
+
+    # number of directions to take, per stencil
+    Nds = np.ceil(1/G.angular_resolution) # effectively dtheta^2
+    if Nds < 1:
+        Nds = 1
+
+    xi = np.linspace(0,1,Nds+1) # stencil coordinates of directions
+    xi = np.array([1-xi,xi])
+    Nds +=1
+
+    # Index of centre point and simplex neighbours
+    I, S = G.simplices[:,0], G.simplices[:,1:]
+
+    X = G.vertices[S] - G.vertices[I,None] # The simplex vectors
+    X = np.swapaxes(X,1,2)                 # Transpose last two axis
+
+    V = np.einsum('ijk,kl->ijl',X,xi)
+    V = V/np.linalg.norm(V,axis=1)[:,None,:]
+
+    def grad(k):
+        mask = I==k
+        V_ = np.concatenate(V[mask],axis=1)
+        X_ = X[mask]
+        S_ = S[mask]
+        Ns = X_.shape[0] # number of simplices about the point
+        bcst_shape = np.concatenate([[Ns],V_.shape])
+
+        jf = np.repeat(range(Ns),Nds)
+        Xi_f = np.linalg.solve(X_[jf],V_.T)  # simplex coordinates
+        S_f = S_[jf,:]
+        h_f = 1./Xi_f.sum(axis=1)
+
+        u_f = np.einsum('ij,ij->i',u[S_f],Xi_f)
+        d1u = ( u_f - u[k]/h_f)
+
+        isort = d1u.argsort()
+        imax = isort[-1]
+
+        d1max = d1u[imax]
+
+        if jacobian is True:
+            # Compute FD matrix, as COO scipy sparse matrix data
+            j = np.concatenate([np.array([k]),S_f[imax]])
+            i = np.full(j.shape,k, dtype = np.intp)
+            val = np.concatenate([np.array([-1/h_f[imax] ]), Xi_f[imax] ])
+            coo = (val,i,j)
+        else:
+            coo = None
+
+        if control is True:
+            v = V_[:,imax]
+        else:
+            v = None
+
+        return d1max,coo, v
+
+    e = [grad(k) for k in G.interior]
+
+    d1_max = np.array([tup[0] for tup in e])
+
+    if jacobian is True:
+        i = np.concatenate([tup[1][1] for tup in e])
+        j = np.concatenate([tup[1][2] for tup in e])
+        val = np.concatenate([tup[1][0] for tup in e])
+        M = coo_matrix((val, (i,j)), shape = [G.num_nodes]*2).tocsr()
+        M = M[M.getnnz(1)>0]
+
+    if control is True:
+        v = np.array([tup[2] for tup in e])
+
+    if control is True and jacobian is True:
+        return d1_max, M, v
+    elif control is True and jacobian is False:
+        return d1_max, v
+    elif control is False and jacobian is True:
+        return d1_max, M
+    else:
+        return d1_max
+
 def d2(G,v,u=None,jacobian=False):
     """
     Compute the second directional derivative of u, in direction v.
@@ -296,10 +403,8 @@ def d2eigs(G,u,jacobian=False, control=False):
     xi = np.array([1-xi,xi])
     Nds +=1
 
-    # Limit to simplices on interior
-    mask = np.in1d(G.simplices[:,0], G.interior)
-    interior_simplices = G.simplices[mask]
-    I, S = interior_simplices[:,0], interior_simplices[:,1:]
+    # Index of centre point and simplex neighbours
+    I, S = G.simplices[:,0], G.simplices[:,1:]
 
     X = G.vertices[S] - G.vertices[I,None] # The simplex vectors
     X = np.swapaxes(X,1,2)                 # Transpose last two axis
@@ -317,7 +422,6 @@ def d2eigs(G,u,jacobian=False, control=False):
 
         jf = np.repeat(range(Ns),Nds)
         Xi_f = np.linalg.solve(X_[jf],V_.T)  # simplex coordinates
-        #Xi_f = Xi_[jf,:,np.arange(Nds*Ns, dtype=np.intp)]
         S_f = S_[jf,:]
         h_f = 1./Xi_f.sum(axis=1)
 

@@ -139,9 +139,10 @@ def d1n(G,u=None,**kwargs):
     """
     return d1(G, -G.boundary_normals, u=u, domain='boundary', **kwargs)
 
-def d1grad(G,u=None,jacobian=False,control=False):
+def d1grad(G,u,jacobian=False,control=False):
     """
-    Compute the first derivative of U in the direction of the gradient.
+    Compute the first derivative of U in the direction of the gradient,
+    on the interior of the domain.
 
     Parameters
     ----------
@@ -156,7 +157,7 @@ def d1grad(G,u=None,jacobian=False,control=False):
 
     Returns
     -------
-    d1grad : array_like
+    d1_max : array_like
         The value of the first derivative of U in the gradient direction.
     M : scipy csr_matrix
         Finite difference matrix. Only returned if jacobian is True.
@@ -164,7 +165,7 @@ def d1grad(G,u=None,jacobian=False,control=False):
         The gradient direction. Only returned if control is True.
     """
     # Center point index, and stencil neighbours
-    I, J = G.neighbours[:,0], G.neighbours[:,1]
+    I, J = G.neighbours[mask,0], G.neighbours[mask,1]
 
     X = G.vertices[J] - G.vertices[I] # The stencil vectors
     Xnorm = np.linalg.norm(X,axis=1)

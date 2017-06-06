@@ -36,6 +36,7 @@ else:
 
 d1, M1 = ddi.d1(G,[1,0],U1, jacobian=True)
 d2, M2 = ddi.d2(G,[1,0],U2, jacobian=True)
+d1g, Mg, vg = ddi.d1grad(G,U1, jacobian=True,control=True)
 (d2min, M_min, v_min), (d2max, M_max, v_max) = ddi.d2eigs(G,U2, jacobian=True, control=True)
 
 
