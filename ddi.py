@@ -503,10 +503,10 @@ def d2min(G,u,**kwargs):
     """
     Compute the minimum eigenvalues of the Hessian of u.
     """
-    return d2eigs(u,G,**kwargs)[0]
+    return d2eigs(G,u,**kwargs)[0]
 
 def d2max(G,u,**kwargs):
     """
     Compute the maximum eigenvalues of the Hessian of u.
     """
-    return d2eigs(u,G,**kwargs)[1]
+    return d2eigs(G,u,**kwargs)[1]

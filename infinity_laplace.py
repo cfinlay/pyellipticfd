@@ -39,7 +39,7 @@ def operator(Grid, U, jacobian=True,fdmethod='interpolate'):
     d1p, d1m = P[0], -M[0]
 
     # Norm of direction of minimal and maximal gradient
-    if jacobian is False:
+    if not jacobian:
         vpn = np.linalg.norm(P[1],axis=1) # maximal gradient direction
         vmn = np.linalg.norm(M[1],axis=1) # minimal gradient direction
     else:
@@ -49,7 +49,7 @@ def operator(Grid, U, jacobian=True,fdmethod='interpolate'):
     scaling = 2/(vpn + vmn)
     val = scaling*(d1p + d1m)
 
-    if  jacobian is True:
+    if  jacobian:
         Dm, Dp = M[1], P[1]
         M = sparse.diags(scaling).dot(Dm+Dp)
         return val, M
@@ -103,7 +103,7 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
 
     Notes
     -----
-    The parametres f, g, and h may be either numpy arrays, or functions. If f, g
+    The parameters f, g, and h may be either numpy arrays, or functions. If f, g
     or h are functions, they take in a (N, dim) array and return (N,) arrays.
     """
     g = dirichlet
@@ -142,7 +142,7 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
 
         op = operator(Grid, W, jacobian=jacobian,fdmethod=fdmethod)
 
-        if jacobian is True:
+        if jacobian:
             inf_Lap, M = op
         else:
             inf_Lap = op
@@ -155,7 +155,7 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
         else:
             GW[Grid.boundary] = W[Grid.boundary]
 
-        if jacobian is False:
+        if not jacobian:
             return GW - F
         else:
             # Fintite difference matrix

@@ -5,13 +5,62 @@ import scipy.sparse as sparse
 
 from pyellipticfd import ddi, ddg, solvers
 
+def operator(Grid,W,g,jacobian=True,fdmethod='interpolate'):
+    """
+    Return the convex envelope operator on arbitrary grids.
+
+    Parameters
+    ----------
+    Grid : FDPointCloud
+        The mesh of grid points.
+    W : array_like
+        The function values.
+    g : array_like
+        The obstacle
+    jacobian : boolean
+        Whether to return the finite difference matrix.
+    fdmethod : string
+        Which finite difference method to use. Either 'interpolate' or 'grid'.
+
+    Returns
+    -------
+    val : array_like
+        The operator value on the interior of the domain.
+    M : scipy csr_matrix
+        The finite difference matrix of the operator.
+    """
+
+    if fdmethod=='grid':
+        op = ddg.d2min(Grid,W,jacobian=jacobian,control=False)
+    elif fdmethod=='interpolate':
+        op = ddi.d2min(Grid,W,jacobian=jacobian,control=False)
+
+    if jacobian:
+        lambda1, M = op
+    else:
+        lambda1 = op
+
+    FW = W-g
+    b = -lambda1 > FW[Grid.interior]
+    FW[Grid.interior[b]] = -lambda1[b]
+
+    if jacobian:
+        Jac = sparse.eye(Grid.num_points,format='csr')
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore") #suppress stupid warning
+            Jac[Grid.interior[b],:] = -M[b,:]
+
+        return FW, Jac
+    else:
+        return FW
+
 def solve(Grid,g,U0=None,fdmethod='interpolate', solver="newton",**kwargs):
     r"""
     Find the convex envelope of the obstacle g(x), via the
     solution of the PDE:
     \[
-        -\max\{-\lambda_1[u], g \} = 0, \,x \in \Omega \\
-                                u = g, \,x \in \partal \Omega,
+        -\max\{-\lambda_1[u], u-g \} = 0, \,x \in \Omega \\
+                                u = g, \,x \in \partal \Omega.
     \]
 
     Parameters
@@ -43,36 +92,30 @@ def solve(Grid,g,U0=None,fdmethod='interpolate', solver="newton",**kwargs):
 
     Notes
     -----
-    The parametres f, g, and h may be either numpy arrays, or functions. If f, g
-    or h are functions, they take in a (N, dim) array and return (N,) arrays.
+    The parameter g may be either an numpy array or a functions. If g
+    is a function, it takes in a (N, dim) array and returns  an (N,) array.
     """
-    g = dirichlet
-    h = neumann
-
-    if g is None and h is None:
-        raise ValueError('Please specify a boundary condition')
-    elif g is not None and h is not None:
-        raise ValueError('Cannot have both Dirichet and Neumann boundary conditions')
-
-    if callable(f):
-        f = f(Grid.interior_points)
 
     if callable(g):
-        g = g(Grid.boundary_points)
-
-    if callable(h):
-        h = h(Grid.boundary_points)
-
-    if h is not None:
-        if fdmethod=='interpolate':
-            d1n = ddi.d1(Grid, -Grid.boundary_normals, domain='boundary')
-        elif fdmethod=='grid':
-            d1n = ddg.d1(Grid, -Grid.boundary_normals, domain='boundary')
-
-    # Forcing function over the whole domain
-    F = np.zeros(Grid.num_points)
-    if h is not None:
-        F[Grid.boundary] = h
+        g = g(Grid.points)
+        gb = g[Grid.boundary]
     else:
-        F[Grid.boundary] = g
-    F[Grid.interior] = f
+        gb = g[Grid.boundary]
+
+    # Initial guess
+    if U0 is None:
+        U0 = np.copy(g)
+
+    dt = 1/2*np.max([Grid.min_edge_length, Grid.min_radius])**2 # CFL condition
+
+    if solver=="euler":
+        return solvers.euler(U0,
+                             lambda W : operator(Grid, W, g,
+                                                 jacobian=False, fdmethod=fdmethod),
+                             dt, **kwargs)
+
+    elif solver=="newton":
+        return solvers.newton(U0,
+                             lambda W, jacobian=True : operator(Grid, W, g,
+                                                 jacobian=jacobian, fdmethod=fdmethod),
+                              dt, **kwargs)

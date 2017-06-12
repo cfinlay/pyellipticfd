@@ -4,46 +4,9 @@ import time
 import scipy.sparse as sparse
 from scipy.sparse.linalg import spsolve, lsmr
 
-from pyellipticfd import ddi, ddg, solvers
+from pyellipticfd import ddi, ddg, solvers, laplace
 
-def operator(Grid, U=None, jacobian=True,fdmethod='interpolate'):
-    """
-    Return the finite difference Laplace operator on arbitrary grids.
-
-    Parameters
-    ----------
-    Grid : FDPointCloud
-        The mesh of grid points.
-    U : array_like
-        The function values. If not specified, only the finite difference
-        matrix is returned.
-    jacobian : boolean
-        Whether to return the finite difference matrix.
-    fdmethod : string
-        Which finite difference method to use. Either 'interpolate' or 'grid'.
-
-    Returns
-    -------
-    val : array_like
-        The operator value on the interior of the domain.
-    M : scipy csr_matrix
-        The finite difference matrix of the operator.
-    """
-    # Construct the finite difference operator
-    if fdmethod=='interpolate':
-        D2 = [ddi.d2(Grid,e) for e in np.identity(Grid.dim)]
-    elif fdmethod=='grid':
-        D2 = [ddg.d2(Grid,e) for e in np.identity(Grid.dim)]
-    Lap = np.sum(D2)
-
-    if U is not None and jacobian is True:
-        return Lap.dot(U), Lap
-    elif U is None:
-        return Lap
-    elif jacobian is False:
-        return Lap.dot(U)
-
-def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
+def solve(Grid,f=None,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
           solver="direct",fredholm_tol = None,**kwargs):
     r"""
     Solve either the Poisson equation with Dirichlet BC
@@ -57,12 +20,14 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
         \frac{\partial u}{\partial n} = h,\, x \in \partal \Omega.
     \]
 
+    If f is not specified, solve the Laplace's equation (with f=0).
+
     Parameters
     ----------
     Grid : FDPointCloud
         The mesh of grid points.
     f : array_like or function
-        The forcing function on the interior.
+        The forcing function on the interior. Defaults to zero.
     dirichlet : array_like or function
         Dirichlet boundary condition.
     neumann : array_like or function
@@ -88,7 +53,7 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
 
     Notes
     -----
-    The parametres f, g, and h may be either numpy arrays, or functions. If f, g
+    The parameters f, g, and h may be either numpy arrays, or functions. If f, g
     or h are functions, they take in a (N, dim) array and return (N,) arrays.
     """
     g = dirichlet
@@ -98,6 +63,9 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
         raise ValueError('Please specify a boundary condition')
     elif g is not None and h is not None:
         raise ValueError('Cannot have both Dirichet and Neumann boundary conditions')
+
+    if f is None:
+        f = lambda x : np.zeros(x.shape[0])
 
     if callable(f):
         f = f(Grid.interior_points)
@@ -110,7 +78,7 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
 
 
     # Construct the finite difference operators
-    Lap = operator(Grid,fdmethod=fdmethod)
+    Lap = laplace.operator(Grid,fdmethod=fdmethod)
 
     if h is not None:
         if fdmethod=='interpolate':
