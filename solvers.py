@@ -1,3 +1,5 @@
+"""Solvers for arbitrary finite difference schemes."""
+
 import numpy as np
 import itertools
 import warnings
@@ -61,8 +63,8 @@ def euler(U,F,CFL,solution_tol=1e-4,max_iters=1e5,timeout=None,zeromean=False):
             warnings.warn("Maximum computation time reached")
             return U, diff, i, time.time()-t0
 
-def newton(U,operator,CFL,solution_tol=1e-4,max_iters=1e2, 
-        euler_timeout=1, max_euler_iters=None, solver = "spsolve"):
+def newton(U,operator,CFL,solution_tol=1e-4,max_iters=1e2,
+        euler_timeout=1/9, max_euler_iters=None, solver = "spsolve"):
     """
     Use semismooth Newton's method to find the steady state F[U]=0.
 
@@ -77,9 +79,10 @@ def newton(U,operator,CFL,solution_tol=1e-4,max_iters=1e2,
     max_iters : scalar
         Maximum number of iterations.
     euler_timeout : scalar
-        In between Newton steps, the method may perform Euler steps. 
-        The scalar euler_timeout gives the ratio of the time spent on Euler over
-        the time spent doing a Newton step. Defaults to 1.
+        In between Newton steps, the method perform Euler steps. The scalar
+        euler_timeout gives the ratio of the time spent on Euler over the time
+        spent doing a Newton step.  Defaults to 1/9, ie 10% of CPU time is
+        spent on Euler steps.
     max_euler_iters : scalar
         Maximum allowable Euler iterations.
     solver : string

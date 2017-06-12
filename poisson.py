@@ -6,6 +6,43 @@ from scipy.sparse.linalg import spsolve, lsmr
 
 from pyellipticfd import ddi, ddg, solvers
 
+def operator(Grid, U=None, jacobian=True,fdmethod='interpolate'):
+    """
+    Return the finite difference Laplace operator on arbitrary grids.
+
+    Parameters
+    ----------
+    Grid : FDPointCloud
+        The mesh of grid points.
+    U : array_like
+        The function values. If not specified, only the finite difference
+        matrix is returned.
+    jacobian : boolean
+        Whether to return the finite difference matrix.
+    fdmethod : string
+        Which finite difference method to use. Either 'interpolate' or 'grid'.
+
+    Returns
+    -------
+    val : array_like
+        The operator value on the interior of the domain.
+    M : scipy csr_matrix
+        The finite difference matrix of the operator.
+    """
+    # Construct the finite difference operator
+    if fdmethod=='interpolate':
+        D2 = [ddi.d2(Grid,e) for e in np.identity(Grid.dim)]
+    elif fdmethod=='grid':
+        D2 = [ddg.d2(Grid,e) for e in np.identity(Grid.dim)]
+    Lap = np.sum(D2)
+
+    if U is not None and jacobian is True:
+        return Lap.dot(U), Lap
+    elif U is None:
+        return Lap
+    elif jacobian is False:
+        return Lap.dot(U)
+
 def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
           solver="direct",fredholm_tol = None,**kwargs):
     r"""
@@ -73,11 +110,7 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
 
 
     # Construct the finite difference operators
-    if fdmethod=='interpolate':
-        D2 = [ddi.d2(Grid,e) for e in np.identity(Grid.dim)]
-    elif fdmethod=='grid':
-        D2 = [ddg.d2(Grid,e) for e in np.identity(Grid.dim)]
-    Lap = np.sum(D2)
+    Lap = operator(Grid,fdmethod=fdmethod)
 
     if h is not None:
         if fdmethod=='interpolate':
@@ -111,6 +144,7 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
             err = ("The problem is ill posed."
                     "\nForcing function does not satisfy the Fredholm alternative")
             raise ValueError(err)
+    # TODO : consistency check for Neumann BC
 
     if solver=="euler":
         dt = 1/np.max(np.abs(Jac.diagonal())) # CFL condition

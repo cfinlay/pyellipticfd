@@ -1,195 +1,78 @@
-import numpy as np
-import scipy.sparse as sparse
-import itertools
 import warnings
+import numpy as np
+import time
+import scipy.sparse as sparse
 
-import directional_derivatives_interp as ddi
-import directional_derivatives_grid as ddg
-import finite_difference_matrices as fdm
-from euler import euler
-from policy import policy
-from newton import newton
-from linesolver import convex_linesolver
+from pyellipticfd import ddi, ddg, solvers
 
-def euler_step(G,dx,method='grid',**kwargs):
-    """
-    Find the convex envelope of g, in 2D. The solution is calculated by
-    iterating Euler steps to solve the the obstacle problem
-        max(-lambda1[u],u-g) = 0
-    where lambda1 is the minimum eigenvalue of the Hessian.
-
-    Parameters
-    ----------
-    g : array_like
-        A 2D array of the function g.
-    dx : scalar
-        dx is the uniform grid spacing.
-    method : string
-        Specify the monotone finite difference method of computing the minimum
-        eigenvalue.  Either 'grid' or 'interpolate'.
-    solution_tol : scalar
-        Stopping criterion.
-    max_iters : int
-        Maximum number of iterations.
-
-    Returns
-    -------
-    u : array_like
-        The convex envelope.
-    iters: scalar
-        Number of iterations.
-    diff: scalar
-        Maximum absolute difference between the solution and the previous iterate.
-    """
-    dt = 1/2*dx ** 2  #time step, from CFL condition
-    U = G.copy()
-
-    if method=="interpolate":
-        def F(W):
-            lambda_1 = ddi.d2min(W,dx)[0]
-            Fw = W - G
-            Fw[1:-1,1:-1] = np.maximum(-lambda_1, Fw[1:-1,1:-1])
-            return Fw
-    elif method=="grid":
-        def F(W):
-            lambda_1 = ddg.d2min(W,dx)[0]
-            Fw = W - G
-            Fw[1:-1,1:-1] = np.maximum(-lambda_1, Fw[1:-1,1:-1])
-            return Fw
-
-    return euler(U,F,dt,**kwargs)
-
-
-def policy_iteration(G,dx,method='grid',**kwargs):
-    """
-    Find the convex envelope of g, in 2D. The solution is calculated by
-    using policy iteration to solve the the obstacle problem
-        max(-lambda1[u],u-g) = 0
-    where lambda1 is the minimum eigenvalue of the Hessian.
+def solve(Grid,g,U0=None,fdmethod='interpolate', solver="newton",**kwargs):
+    r"""
+    Find the convex envelope of the obstacle g(x), via the
+    solution of the PDE:
+    \[
+        -\max\{-\lambda_1[u], g \} = 0, \,x \in \Omega \\
+                                u = g, \,x \in \partal \Omega,
+    \]
 
     Parameters
     ----------
-    g : array_like
-        A 2D array of the function g.
-    dx : scalar
-        dx is the uniform grid spacing.
-    method : string
-        Specify the monotone finite difference method.  Either 'grid' or 'interpolate'.
-    solution_tol : scalar
-        Stopping criterion for difference between succesive iterates.
-    max_iters : int
-        Maximum number of iterations - the sum of Euler step iterations.
-    euler_tol : scalar
-        Tolerance for solving the sub-problem
-            (1) max(-Dvv[u], u-g)=0
-    max_euler_iters : int
-        Maximum number of iterations to solve (1) with Euler step.
+    Grid : FDPointCloud
+        The mesh of grid points.
+    g : array_like or function
+        The obstacle.
+    U0 : array_like
+        Initial guess. Optional.
+    fdmethod : string
+        Which finite difference method to use. Either 'interpolate' or 'grid'.
+    solver : string
+        Which solver to use. Either 'euler' or 'newton'.
+    **kwargs
+        Additional arguments to be passed to the solver.
 
     Returns
     -------
-    u : array_like
-        The convex envelope.
-    iters: scalar
-        Number of iterations.
-    diff: scalar
-        Maximum absolute difference between the solution and the previous iterate.
-    policy_diff: scalar
-        Maximum absolute difference between the optimal policy and the previous iterate.
+    U : array_like
+        The solution.
+    diff : scalar
+        The maximum absolute difference between the solution
+        and the previous iterate.
+    i : scalar
+        Number of iterations taken.
+    time : scalar
+        CPU time spent computing solution.
+
+    Notes
+    -----
+    The parametres f, g, and h may be either numpy arrays, or functions. If f, g
+    or h are functions, they take in a (N, dim) array and return (N,) arrays.
     """
-    if method=="interpolate":
-        def getF(policy):
-            def F(W):
-                Wvv = ddi.d2(W,policy,dx)
-                Fw = W - G
-                Fw[1:-1,1:-1]= np.maximum(-Wvv, Fw[1:-1,1:-1])
-                return Fw
-            return F
-    elif method=="grid":
-        def getF(policy):
-            def F(W):
-                Wvv = ddg.d2(W,dx,ddg.stencil,ix=policy)
-                Fw = W - G
-                Fw[1:-1,1:-1]= np.maximum(-Wvv, Fw[1:-1,1:-1])
-                return Fw
-            return F
+    g = dirichlet
+    h = neumann
 
-    if method=="interpolate":
-        def getPolicy(U):
-            return ddi.d2min(U,dx)[1]
-    elif method=="grid":
-        def getPolicy(U):
-            return ddg.d2min(U,dx)[1]
+    if g is None and h is None:
+        raise ValueError('Please specify a boundary condition')
+    elif g is not None and h is not None:
+        raise ValueError('Cannot have both Dirichet and Neumann boundary conditions')
 
-    dt = 1/2*dx ** 2  #time step, from CFL condition
-    U = G.copy()
-    return policy(U,getF,getPolicy,dt,**kwargs)
+    if callable(f):
+        f = f(Grid.interior_points)
 
-def newton_method(G,dx,**kwargs):
-    """
-    Find the convex envelope of g, in 2D. The solution is calculated by
-    semismooth Newton's method to solve the the obstacle problem
-        max(-lambda1[u],u-g) = 0
-    where lambda1 is the minimum eigenvalue of the Hessian.
+    if callable(g):
+        g = g(Grid.boundary_points)
 
-    Parameters
-    ----------
-    G : array_like
-        A 2D array of the function g.
-    dx : scalar
-        dx is the uniform grid spacing.
-    solution_tol : scalar
-        Stopping criterion.
-    max_iters : int
-        Maximum number of iterations.
+    if callable(h):
+        h = h(Grid.boundary_points)
 
-    Returns
-    -------
-    u : array_like
-        The convex envelope.
-    iters: scalar
-        Number of iterations.
-    diff: scalar
-        Maximum absolute difference between the solution and the previous iterate.
-    """
-    I,J = np.indices(G.shape)
-    ix_int = np.ravel_multi_index((I[1:-1,1:-1],J[1:-1,1:-1]),G.shape)
-    ix_int = np.reshape(ix_int,ix_int.size)
+    if h is not None:
+        if fdmethod=='interpolate':
+            d1n = ddi.d1(Grid, -Grid.boundary_normals, domain='boundary')
+        elif fdmethod=='grid':
+            d1n = ddg.d1(Grid, -Grid.boundary_normals, domain='boundary')
 
-    def operator(U,jacobian=True):
-        lambda1, Ix = ddg.d2min(U,dx)
-
-        M = fdm.d2(G.shape, dx, ddg.stencil, Ix)
-
-        Fu = U-G
-        Fu_int = Fu[1:-1,1:-1]
-        b = -lambda1 > Fu_int
-        Fu_int[b] = -lambda1[b]
-
-        if jacobian:
-            Fu = Fu.reshape(Fu.size)
-            b = np.reshape(b,b.size)
-
-            Grad = sparse.eye(G.size,format='csr')
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore") #suppress stupid warning
-                Grad[ix_int[b],:] = -M[b,:]
-
-            return Fu, Grad
-        else:
-            return Fu
-
-    U = G.copy()
-    return newton(U,operator,1/2*dx**2,**kwargs)
-
-def line_solver(G,stencil,solution_tol=1e-6, max_iters=1e3):
-    U = np.copy(G)
-    for i in itertools.count(1):
-        Uold = U
-        U = convex_linesolver(U,stencil)
-        err = np.max(np.abs(U-Uold))
-
-        if err < solution_tol:
-            return U, i, err
-        elif i >= max_iters:
-            warnings.warn("Maximum iterations reached")
-            return U, i, err
+    # Forcing function over the whole domain
+    F = np.zeros(Grid.num_points)
+    if h is not None:
+        F[Grid.boundary] = h
+    else:
+        F[Grid.boundary] = g
+    F[Grid.interior] = f

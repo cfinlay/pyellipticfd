@@ -2,9 +2,59 @@ import warnings
 import numpy as np
 import time
 import scipy.sparse as sparse
-from scipy.sparse.linalg import spsolve, lsmr
 
 from pyellipticfd import ddi, ddg, solvers
+
+def operator(Grid, U, jacobian=True,fdmethod='interpolate'):
+    """
+    Return the finite difference infinity Laplace operator on arbitrary grids.
+
+    Parameters
+    ----------
+    Grid : FDPointCloud
+        The mesh of grid points.
+    U : array_like
+        The function values.
+    jacobian : boolean
+        Whether to return the finite difference matrix.
+    fdmethod : string
+        Which finite difference method to use. Either 'interpolate' or 'grid'.
+
+    Returns
+    -------
+    val : array_like
+        The operator value on the interior of the domain.
+    M : scipy csr_matrix
+        The finite difference matrix of the operator.
+    """
+
+    # Construct the finite difference operator, get value of first
+    # derivative in minimal and maximal gradient directions
+    if fdmethod=='interpolate':
+        P = ddi.d1grad(Grid,U,control=True,jacobian=jacobian)
+        M = ddi.d1grad(Grid,-U, control=True,jacobian=jacobian)
+    elif fdmethod=='grid':
+        P = ddg.d1grad(Grid,U,control=True,jacobian=jacobian)
+        M = ddg.d1grad(Grid,-U, control=True,jacobian=jacobian)
+    d1p, d1m = P[0], -M[0]
+
+    # Norm of direction of minimal and maximal gradient
+    if jacobian is False:
+        vpn = np.linalg.norm(P[1],axis=1) # maximal gradient direction
+        vmn = np.linalg.norm(M[1],axis=1) # minimal gradient direction
+    else:
+        vpn = np.linalg.norm(P[2],axis=1)
+        vmn = np.linalg.norm(M[2],axis=1)
+
+    scaling = 2/(vpn + vmn)
+    val = scaling*(d1p + d1m)
+
+    if  jacobian is True:
+        Dm, Dp = M[1], P[1]
+        M = sparse.diags(scaling).dot(Dm+Dp)
+        return val, M
+    else:
+        return val
 
 def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
           solver="newton",**kwargs):
@@ -31,7 +81,7 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
     neumann : array_like or function
         Neumann boundary condition.
     U0 : array_like
-        Initial guess. Optional. Only used if solver is 'euler'.
+        Initial guess. Optional.
     fdmethod : string
         Which finite difference method to use. Either 'interpolate' or 'grid'.
     solver : string
@@ -43,6 +93,11 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
     -------
     U : array_like
         The solution.
+    diff : scalar
+        The maximum absolute difference between the solution
+        and the previous iterate.
+    i : scalar
+        Number of iterations taken.
     time : scalar
         CPU time spent computing solution.
 
@@ -84,37 +139,30 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
 
     # Operator over whole domain
     def G(W, jacobian=True):
-        if fdmethod=='interpolate':
-            P = ddi.d1grad(Grid,u,control=True,jacobian=jacobian)
-            M = ddi.d1grad(Grid,-u, control=True,jacobian=jacobian)
-        elif fdmethod=='grid':
-            P = ddg.d1grad(Grid,u,control=True,jacobian=jacobian)
-            M = ddg.d1grad(Grid,-u, control=True,jacobian=jacobian)
-        d1p, d1m = P[0], -M[0]
-        if jacobian is False:
-            vpn = np.linalg.norm(P[1],axis=1)
-            vmn = np.linalg.norm(M[1],axis=1)
-        else:
-            vpn = np.linalg.norm(P[2],axis=1)
-            vmn = np.linalg.norm(M[2],axis=1)
 
-        scaling = 2/(vpn + vmn)
-        inf_Lap = scaling*(d1p + d1m)
+        op = operator(Grid, W, jacobian=jacobian,fdmethod=fdmethod)
+
+        if jacobian is True:
+            inf_Lap, M = op
+        else:
+            inf_Lap = op
 
         GW = np.zeros(Grid.num_points)
         GW[Grid.interior] = -inf_Lap
-        GW[Grid.boundary] = d1n.dot(W)
+
+        if h is not None:
+            GW[Grid.boundary] = d1n.dot(W)
+        else:
+            GW[Grid.boundary] = W[Grid.boundary]
 
         if jacobian is False:
             return GW - F
         else:
-            Dm, Pm = M[1], P[1]
-
             # Fintite difference matrix
             Jac = sparse.eye(Grid.num_points,format='csr')
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                Jac[Grid.interior]=(-sparse.diags(scaling)).dot(Dm+Dp)
+                Jac[Grid.interior]=-M
             if h is not None:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
@@ -122,25 +170,24 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
 
             return GW - F, Jac
 
+    dt = 1/2*np.max([Grid.min_edge_length, Grid.min_radius])**2 # CFL condition
+
+    # Initial guess
+    if U0 is None and g is not None:
+        U0 = np.ones(Grid.num_points)
+        U0[Grid.boundary] = g
+    elif U0 is None:
+        U0 = np.ones(Grid.num_points)
 
     if solver=="euler":
-        dt = 1/(2*np.max(Grid.min_edge_length, Grid.min_radius)**2) # CFL condition
-
-        # Initial guess
-        if U0 is None and g is not None:
-            U0 = np.ones(Grid.num_points)
-            U0[Grid.boundary] = g
-        elif U0 is None:
-            U0 = np.ones(Grid.num_points)
-
         if h is not None:
             # With Neumann conditions, return the solution with zero mean
             # (where each point has equal weight)
-            U, diff, i, t = solvers.euler(U0, G, dt, zeromean=True,**kwargs)
+            return solvers.euler(U0, lambda W : G(W, jacobian=False),
+                                          dt, zeromean=True,**kwargs)
         else:
-            U, diff, i, t = solvers.euler(U0, G, dt, **kwargs)
-
-        return U, t
+            return solvers.euler(U0, lambda W : G(W, jacobian=False),
+                                          dt, **kwargs)
 
     elif solver=="newton":
         t0 = time.time()
