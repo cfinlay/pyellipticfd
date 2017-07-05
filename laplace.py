@@ -27,14 +27,14 @@ def operator(Grid, U=None, jacobian=True,fdmethod='interpolate'):
     """
     # Construct the finite difference operator
     if fdmethod=='interpolate':
-        D2 = [ddi.d2(Grid,e) for e in np.identity(Grid.dim)]
+        D2 = [ddi.d2(Grid,e)[1] for e in np.identity(Grid.dim)]
     elif fdmethod=='grid':
-        D2 = [ddg.d2(Grid,e) for e in np.identity(Grid.dim)]
+        D2 = [ddg.d2(Grid,e)[1] for e in np.identity(Grid.dim)]
     Lap = np.sum(D2)
 
     if U is not None and jacobian:
         return Lap.dot(U), Lap
     elif U is None:
-        return Lap
+        return None, Lap
     elif not jacobian:
-        return Lap.dot(U)
+        return Lap.dot(U), None

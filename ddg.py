@@ -17,9 +17,9 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         Direction to take firt derivative.
     u : array_like
         Function values at grid points. If not specified, only the Jacobian
-        is returned.
+        is calculated.
     jacobian : boolean
-        Whether to also return the Jacobian M.
+        Whether to also calculate the Jacobian M.
     domain : string
         Which nodes to compute derivative on: one of "interior",
         "boundary", or "all". If not specified, defaults to "interior".
@@ -29,8 +29,7 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
     d1u : array_like
         First derivative in the direction v.
     M : scipy csr_matrix
-        Finite difference matrix. Only returned if jacobian is True, or if u is
-        not specified.
+        Finite difference matrix.
     """
     if u is None:
         jacobian = True
@@ -98,6 +97,8 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
 
     if u is not None:
         d1u = np.array([tup[0] for tup in D1])
+    else:
+        d1u = None
 
     if jacobian is True:
         i = np.concatenate([tup[1][1] for tup in D1])
@@ -105,19 +106,16 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         value = np.concatenate([tup[1][0] for tup in D1])
         M = coo_matrix((value, (i,j)), shape = [G.num_nodes]*2).tocsr()
         M = M[M.getnnz(1)>0]
-
-    if (u is not None) and (jacobian is True):
-        return d1u, M
-    elif jacobian is False:
-        return d1u
     else:
-        return M
+        M = None
+
+    return d1u, M
 
 def d1n(G,u=None,**kwargs):
     """
     Compute the directional derivative with respect to the outward normal direction
-    of the boundary of the domain. If no function is given, then the Jacobian
-    is returned.
+    of the boundary of the domain. If no function is given, then only the Jacobian
+    is calculated.
 
     Parameters
     ----------
@@ -125,16 +123,16 @@ def d1n(G,u=None,**kwargs):
         The mesh of grid points.
     u : array_like
         Function values at grid points. If not specified, only the Jacobian
-        is returned.
+        is calculated.
     jacobian : boolean
-        Whether to also return the Jacobian M.
+        Whether to also calculate the Jacobian M.
 
     Returns
     -------
     d1u : array_like
         First derivative in the direction v.
     M : scipy csr_matrix
-        Finite difference matrix. Only returned if jacobian is True, or if u is
+        Finite difference matrix. Only calculate if jacobian is True, or if u is
         not specified.
     """
     return d1(G, -G.boundary_normals, u=u, domain='boundary', **kwargs)
@@ -151,21 +149,21 @@ def d1grad(G,u,jacobian=False,control=False):
     u : array_like
         Function values at grid points.
     jacobian : boolean
-        If True, also return the Jacobian (finite difference matrix).
+        If True, also calculate the Jacobian (finite difference matrix).
     control : boolean
-        If True, also return the gradient direction.
+        If True, also calculate the gradient direction.
 
     Returns
     -------
     d1_max : array_like
         The value of the first derivative of U in the gradient direction.
     M : scipy csr_matrix
-        Finite difference matrix. Only returned if jacobian is True.
+        Finite difference matrix. Only calculated if jacobian is True.
     v : array_like
-        The gradient direction. Only returned if control is True.
+        The gradient direction. Only calculated if control is True.
     """
     # Center point index, and stencil neighbours
-    I, J = G.neighbours[mask,0], G.neighbours[mask,1]
+    I, J = G.neighbours[:,0], G.neighbours[:,1]
 
     X = G.vertices[J] - G.vertices[I] # The stencil vectors
     Xnorm = np.linalg.norm(X,axis=1)
@@ -214,18 +212,15 @@ def d1grad(G,u,jacobian=False,control=False):
 
         M = coo_matrix((w.flatten(), (i,j.flatten())), shape = [G.num_nodes]*2).tocsr()
         M = M[M.getnnz(1)>0]
+    else:
+        M = None
 
     if control is True:
         v = np.array([tup[3] for tup in data])
-
-    if control is True and jacobian is True:
-        return d1_max, M, v
-    elif control is True and jacobian is False:
-        return d1_max, v
-    elif control is False and jacobian is True:
-        return d1_max, M
     else:
-        return d1_max
+        v = None
+
+    return d1_max, M, v
 
 def d2(G,v,u=None,jacobian=False):
     """
@@ -239,17 +234,16 @@ def d2(G,v,u=None,jacobian=False):
         Direction to take second derivative.
     u : array_like
         Function values at grid points. If not specified, only the Jacobian
-        is returned.
+        is calculated.
     jacobian : boolean
-        Whether to also return the Jacobian M.
+        Whether to also calculate the Jacobian M.
 
     Returns
     -------
     d2u : array_like
-        Second derivative value in the direction v. Only returned if u is specified.
+        Second derivative value in the direction v.
     M : scipy csr_matrix
-        Finite difference matrix. Only returned if jacobian is True, or if u is
-        not specified.
+        Finite difference matrix.
     """
     if u is None:
         jacobian = True
@@ -294,6 +288,8 @@ def d2(G,v,u=None,jacobian=False):
 
     if u is not None:
         d2u = np.sum(weight*u_bc, axis=1)
+    else:
+        d2u = None
 
     if jacobian is True:
         i = np.repeat(pairs[:,0],3)
@@ -302,13 +298,10 @@ def d2(G,v,u=None,jacobian=False):
 
         M = coo_matrix((weight, (i,j)), shape = [G.num_nodes]*2).tocsr()
         M = M[M.getnnz(1)>0]
-
-    if (u is not None) and (jacobian is True):
-        return d2u, M
-    elif jacobian is False:
-        return d2u
     else:
-        return M
+        M = None
+
+    return d2u, M
 
 def d2eigs(G,u,jacobian=False,control=False):
     """
@@ -321,15 +314,15 @@ def d2eigs(G,u,jacobian=False,control=False):
     u : array_like
         Function values at grid points.
     jacobian : boolean
-        Whether to return the Jacobian (finite difference matrix) for each eigenvalue.
+        Whether to calculate the Jacobian (finite difference matrix) for each eigenvalue.
     control : boolean
-        Whether to return the directions of the eigenvalues.
+        Whether to calculate the directions of the eigenvalues.
 
     Returns
     -------
     lambda_min, lambda_max
         Respectively the minimal and maximal eigenvalues.
-        These are tuples if either jacobian or control is true.
+        These are tuples consisting of the value, Jacobian and control.
     """
 
     # Center point index, and stencil neighbours
@@ -388,19 +381,16 @@ def d2eigs(G,u,jacobian=False,control=False):
 
         M_max = coo_matrix((w_max.flatten(), (i,j_max.flatten())), shape = [G.num_nodes]*2).tocsr()
         M_max = M_max[M_max.getnnz(1)>0]
+    else:
+        M_min, M_max = [None]*2
 
     if control is True:
         v_min = np.array([tup[3][0] for tup in data])
         v_max = np.array([tup[3][1] for tup in data])
-
-    if control is True and jacobian is True:
-        return (lambda_min, M_min, v_min), (lambda_max, M_max, v_max)
-    elif control is True and jacobian is False:
-        return (lambda_min, v_min), (lambda_max, v_max)
-    elif control is False and jacobian is True:
-        return (lambda_min, M_min), (lambda_max, M_max)
     else:
-        return lambda_min, lambda_max
+        v_min, v_max = [None]*2
+
+    return (lambda_min, M_min, v_min), (lambda_max, M_max, v_max)
 
 def d2min(G,u,**kwargs):
     """

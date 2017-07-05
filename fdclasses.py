@@ -206,12 +206,15 @@ class FDPointCloud(object):
                 ij = np.array(list(itertools.combinations(range(nv),2)))
                 doubles = ij[check]
 
-                ix = np.arange(nv)
-                keep = ix[np.in1d(ix,doubles.flatten(),invert=True)]
+                argmin = np.argmax(d[doubles],axis=1)
+                shorter = doubles[range(doubles.shape[0]),argmin]
 
-                shorter = [ix[r][np.argmin(d[r])] for r in doubles]
+                mask =  np.in1d(range(nv),shorter,invert=True)
 
-                keep = np.concatenate([shorter,keep])
+                keep = np.arange(nv)[mask]
+                b_ix = np.in1d(nb_ix,self.boundary)
+                keep = np.unique(np.concatenate([np.arange(nv)[b_ix],keep]))
+
             else:
                 keep = np.arange(nv)
 
@@ -241,7 +244,7 @@ class FDTriMesh(FDPointCloud):
     """Class for finite differences on triangular meshes."""
 
     def __init__(self, p, t, angular_resolution=np.pi/4,
-            colinear_tol=1e-4,  interpolation=True, **kwargs):
+              interpolation=True, **kwargs):
         """Create a FDTriMesh object.
 
         Parameters
@@ -253,9 +256,6 @@ class FDTriMesh(FDPointCloud):
             tetrahedra in 3d).
         angular_resolution : float
             The desired angular resolution.
-        colinear_tol : float
-            Tolerance for detecting colinear points. Defaults to 1e-4.
-            Set to False if you don't want this safety check.
         interpolation : bool
             If True, create simplices for interpolating finite differences.
             If False, use Froese's finite difference method for point clouds.
@@ -269,8 +269,19 @@ class FDTriMesh(FDPointCloud):
 
         super().__init__(p, angular_resolution=angular_resolution, **kwargs)
 
+        if interpolation: # TODO: Check this is correct in 3D
+            colinear_tol = 1-np.cos(angular_resolution/4)
+        else:
+            colinear_tol = 1-np.cos(angular_resolution/2)
+
         self._interp = interpolation
         self._T = t
+
+        if not interpolation:
+            min_search=False
+        else:
+            min_search=True
+        self._min_search = min_search
 
         # function to compute a simplex's circumcircle's radius
         def circumcircle_radius(ix):
@@ -300,6 +311,7 @@ class FDTriMesh(FDPointCloud):
             self._delta = min([cdist(p[ix,:][np.logical_not(i)],
                 p[ix,:][i]).min() for (ix,i) in zip(tb,b1) ])
 
+
         # Compute the boundary resolution
         if not self.boundary_resolution:
             tb = t[b.sum(axis=1)==2]
@@ -309,10 +321,19 @@ class FDTriMesh(FDPointCloud):
 
             self._hb = max([circumcircle_radius(ix) for ix in fb])
 
+        if self.dist_to_boundary < self.min_boundary_radius:
+            raise TypeError (
+                ("The interior grid points' minimum distance to the boundary"
+                " ({0.dist_to_boundary:.3g}) "
+                "\nmust be greater than the minimum boundary search radius"
+                "({0.min_boundary_radius:.3g})."
+                "\nTry increasing the angular resolution,"
+                "\nor deleting points close to the boundary.").format(self))
+
         if self._hb > self._max_hb:
-            raise TypeError ("The boundary resolution {0._hb:.3g} is not small enough "
-                "to satisfy the desired angular resolution."
-                "\nNeed boundary resolution less than {0._max_hb:.3g}").format(self)
+            raise TypeError (("The boundary resolution ({0._hb:.3g}) is not small enough "
+                "\nto satisfy the desired angular resolution."
+                "\nNeed boundary resolution less than ({0._max_hb:.3g})").format(self))
 
 
         # Get edge from list of triangles
@@ -336,22 +357,15 @@ class FDTriMesh(FDPointCloud):
         # Remove neighbours that are outside the search radii of each vertex
         D = self._VDist
 
-        if not interpolation:
-            min_search=False
-        else:
-            min_search=True
-        self._min_search = min_search
-
-        if min_search:
-            mask = np.logical_and(D <= self.max_radius, D>=self.min_radius)
-        else:
-            mask = np.logical_and(D <= self.max_radius, D>0)
+        mask = np.logical_and.reduce((D <= self.max_radius,
+                                      np.logical_or(D>=self.min_radius,
+                                                    np.in1d(self._J, self.boundary)),
+                                      self._I!=self._J))
 
         self._nbs = self.neighbours[mask,:]
 
         # If neighbours are colinear, remove them
-        if colinear_tol:
-            self._remove_colinear_neighbours(colinear_tol)
+        self._remove_colinear_neighbours(colinear_tol)
 
         # Get simplices
         if interpolation:
@@ -395,15 +409,25 @@ class FDTriMesh(FDPointCloud):
         h = self.spatial_resolution
         th = self.angular_resolution
 
-        return self.Cd * h * (1+ np.cos(th/2)/np.tan(th/2) + np.sin(th/2))
+        return  h * (1+ self.Cd / np.sin(th/2))
 
     @property
     def min_radius(self):
         if self._min_search:
             h = self.spatial_resolution
-            return self.max_radius - 2*self.Cd*h
+            th = self.angular_resolution
+            return h * (-1+ self.Cd/ np.sin(th/2))
         else:
-            return None
+            return 0.0
+
+    @property
+    def min_boundary_radius(self):
+        if self._min_search:
+            h = self.boundary_resolution
+            th = self.angular_resolution
+            return  h * (-1+ self.Cd /  np.sin(th/2))
+        else:
+            return 0.0
 
     @property
     def depth(self):
@@ -419,6 +443,7 @@ class FDTriMesh(FDPointCloud):
 
 class FDRegularGrid(FDPointCloud):
     """Class for finite differences on rectangular grids."""
+    # TODO : implement Bresnham's algorithm, or something similar
 
     def __repr__(self):
         return ("FDRegularGrid in {0.dim}D with {0.num_vertices} vertices, "
@@ -426,7 +451,7 @@ class FDRegularGrid(FDPointCloud):
                 "and angular resolution {0.angular_resolution:.3g}").format(self)
 
     def __init__(self, interior_shape, bounds, stencil_radius, get_pairs=True,
-            interpolation=True, colinear_tol=1e-4):
+            interpolation=True, colinear_tol=1e-3):
         """Create a FDRegularGrid.
 
         Parameters
@@ -444,10 +469,10 @@ class FDRegularGrid(FDPointCloud):
         interpolation : bool
             If True, create simplices for interpolating finite differences.
         colinear_tol : float
-            Tolerance for detecting colinear points. Defaults to 1e-4.
+            Tolerance for detecting colinear points. Defaults to 1e-3.
             Set to False if you don't want this safety check.
         """
-        #TODO need minimum searcn radius to guarantee converence for interpolation method...
+        #TODO need minimum search radius to guarantee converence for interpolation method...
 
         self._r = stencil_radius
         self._interp = interpolation

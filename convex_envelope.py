@@ -18,7 +18,7 @@ def operator(Grid,W,g,jacobian=True,fdmethod='interpolate'):
     g : array_like
         The obstacle
     jacobian : boolean
-        Whether to return the finite difference matrix.
+        Whether to calculate the finite difference matrix.
     fdmethod : string
         Which finite difference method to use. Either 'interpolate' or 'grid'.
 
@@ -28,6 +28,7 @@ def operator(Grid,W,g,jacobian=True,fdmethod='interpolate'):
         The operator value on the interior of the domain.
     M : scipy csr_matrix
         The finite difference matrix of the operator.
+        Set to None if jacobian=False
     """
 
     if fdmethod=='grid':
@@ -35,10 +36,7 @@ def operator(Grid,W,g,jacobian=True,fdmethod='interpolate'):
     elif fdmethod=='interpolate':
         op = ddi.d2min(Grid,W,jacobian=jacobian,control=False)
 
-    if jacobian:
-        lambda1, M = op
-    else:
-        lambda1 = op
+    lambda1, M, _ = op
 
     FW = W-g
     b = -lambda1 > FW[Grid.interior]
@@ -49,10 +47,10 @@ def operator(Grid,W,g,jacobian=True,fdmethod='interpolate'):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore") #suppress stupid warning
             Jac[Grid.interior[b],:] = -M[b,:]
-
-        return FW, Jac
     else:
-        return FW
+        Jac = None
+
+    return FW, Jac
 
 def solve(Grid,g,U0=None,fdmethod='interpolate', solver="newton",**kwargs):
     r"""
@@ -109,13 +107,14 @@ def solve(Grid,g,U0=None,fdmethod='interpolate', solver="newton",**kwargs):
     dt = 1/2*np.max([Grid.min_edge_length, Grid.min_radius])**2 # CFL condition
 
     if solver=="euler":
-        return solvers.euler(U0,
-                             lambda W : operator(Grid, W, g,
-                                                 jacobian=False, fdmethod=fdmethod),
-                             dt, **kwargs)
+        def G(W):
+            op = operator(Grid,W,g,jacobian=False,fdmethod=fdmethod)
+            return op[0], dt
 
+        return solvers.euler(U0, G, **kwargs)
     elif solver=="newton":
-        return solvers.newton(U0,
-                             lambda W, jacobian=True : operator(Grid, W, g,
-                                                 jacobian=jacobian, fdmethod=fdmethod),
-                              dt, **kwargs)
+        def G(W,jacobian=True):
+            op = operator(Grid,W,g,jacobian=jacobian,fdmethod=fdmethod)
+            return op[0], op[1], dt
+
+        return solvers.newton(U0, G, **kwargs)

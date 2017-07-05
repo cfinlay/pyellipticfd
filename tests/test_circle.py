@@ -3,7 +3,7 @@ import numpy as np
 import distmesh as dm
 from scipy.spatial import ConvexHull, Delaunay
 
-from fdclasses import FDTriMesh
+from pyellipticfd.fdclasses import FDTriMesh
 
 # Uniform grid on unit circle
 # ---------------------------

@@ -78,13 +78,13 @@ def solve(Grid,f=None,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate'
 
 
     # Construct the finite difference operators
-    Lap = laplace.operator(Grid,fdmethod=fdmethod)
+    _, Lap = laplace.operator(Grid,fdmethod=fdmethod)
 
     if h is not None:
         if fdmethod=='interpolate':
-            d1n = ddi.d1(Grid, -Grid.boundary_normals, domain='boundary')
+            _, d1n = ddi.d1(Grid, -Grid.boundary_normals, domain='boundary')
         elif fdmethod=='grid':
-            d1n = ddg.d1(Grid, -Grid.boundary_normals, domain='boundary')
+            _, d1n = ddg.d1(Grid, -Grid.boundary_normals, domain='boundary')
 
     # Finite difference matrix over the whole domain
     Jac = sparse.eye(Grid.num_points,format='csr')
@@ -126,14 +126,14 @@ def solve(Grid,f=None,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate'
 
         # Operator over whole domain
         def G(W):
-            return Jac.dot(W) - F
+            return Jac.dot(W) - F, dt
 
         if h is not None:
             # With Neumann conditions, return the solution with zero mean
             # (where each point has equal weight)
-            U, diff, i, t = solvers.euler(U0, G, dt, zeromean=True,**kwargs)
+            U, diff, i, t = solvers.euler(U0, G, zeromean=True,**kwargs)
         else:
-            U, diff, i, t = solvers.euler(U0, G, dt, **kwargs)
+            U, diff, i, t = solvers.euler(U0, G, **kwargs)
 
         return U, t
 

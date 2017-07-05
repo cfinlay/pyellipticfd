@@ -1,6 +1,5 @@
 import warnings
 import numpy as np
-import time
 import scipy.sparse as sparse
 
 from pyellipticfd import ddi, ddg, solvers
@@ -16,7 +15,7 @@ def operator(Grid, U, jacobian=True,fdmethod='interpolate'):
     U : array_like
         The function values.
     jacobian : boolean
-        Whether to return the finite difference matrix.
+        Whether to calculate the finite difference matrix.
     fdmethod : string
         Which finite difference method to use. Either 'interpolate' or 'grid'.
 
@@ -25,7 +24,8 @@ def operator(Grid, U, jacobian=True,fdmethod='interpolate'):
     val : array_like
         The operator value on the interior of the domain.
     M : scipy csr_matrix
-        The finite difference matrix of the operator.
+        The finite difference matrix of the operator. Set to None if
+        jacobian=False
     """
 
     # Construct the finite difference operator, get value of first
@@ -38,13 +38,8 @@ def operator(Grid, U, jacobian=True,fdmethod='interpolate'):
         M = ddg.d1grad(Grid,-U, control=True,jacobian=jacobian)
     d1p, d1m = P[0], -M[0]
 
-    # Norm of direction of minimal and maximal gradient
-    if not jacobian:
-        vpn = np.linalg.norm(P[1],axis=1) # maximal gradient direction
-        vmn = np.linalg.norm(M[1],axis=1) # minimal gradient direction
-    else:
-        vpn = np.linalg.norm(P[2],axis=1)
-        vmn = np.linalg.norm(M[2],axis=1)
+    vpn = np.linalg.norm(P[2],axis=1)
+    vmn = np.linalg.norm(M[2],axis=1)
 
     scaling = 2/(vpn + vmn)
     val = scaling*(d1p + d1m)
@@ -52,9 +47,10 @@ def operator(Grid, U, jacobian=True,fdmethod='interpolate'):
     if  jacobian:
         Dm, Dp = M[1], P[1]
         M = sparse.diags(scaling).dot(Dm+Dp)
-        return val, M
     else:
-        return val
+        M = None
+
+    return val, M
 
 def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
           solver="newton",**kwargs):
@@ -103,8 +99,8 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
 
     Notes
     -----
-    The parameters f, g, and h may be either numpy arrays, or functions. If f, g
-    or h are functions, they take in a (N, dim) array and return (N,) arrays.
+    The parameters f, dirichlet, and neumann may be either numpy arrays, or functions. If
+    functions, they take in a (N, dim) array and return (N,) arrays.
     """
     g = dirichlet
     h = neumann
@@ -137,15 +133,13 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
         F[Grid.boundary] = g
     F[Grid.interior] = f
 
+    dx = np.max([Grid.min_edge_length, Grid.min_radius])
+    dt = 1/2*dx**2 # CFL condition
+
     # Operator over whole domain
     def G(W, jacobian=True):
 
-        op = operator(Grid, W, jacobian=jacobian,fdmethod=fdmethod)
-
-        if jacobian:
-            inf_Lap, M = op
-        else:
-            inf_Lap = op
+        inf_Lap, M = operator(Grid, W, jacobian=jacobian,fdmethod=fdmethod)
 
         GW = np.zeros(Grid.num_points)
         GW[Grid.interior] = -inf_Lap
@@ -156,7 +150,7 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
             GW[Grid.boundary] = W[Grid.boundary]
 
         if not jacobian:
-            return GW - F
+            Jac = None
         else:
             # Fintite difference matrix
             Jac = sparse.eye(Grid.num_points,format='csr')
@@ -168,9 +162,8 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
                     warnings.simplefilter("ignore")
                     Jac[Grid.boundary] = d1n
 
-            return GW - F, Jac
+        return GW - F, Jac, dt
 
-    dt = 1/2*np.max([Grid.min_edge_length, Grid.min_radius])**2 # CFL condition
 
     # Initial guess
     if U0 is None and g is not None:
@@ -180,20 +173,21 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
         U0 = np.ones(Grid.num_points)
 
     if solver=="euler":
+        # Euler solver doesn't need jacobians
+        def G_(W):
+            op = G(W, jacobian=False)
+            return op[0], op[2]
+
         if h is not None:
             # With Neumann conditions, return the solution with zero mean
             # (where each point has equal weight)
-            return solvers.euler(U0, lambda W : G(W, jacobian=False),
-                                          dt, zeromean=True,**kwargs)
+            return solvers.euler(U0, G_, zeromean=True,**kwargs)
         else:
-            return solvers.euler(U0, lambda W : G(W, jacobian=False),
-                                          dt, **kwargs)
+            return solvers.euler(U0, G_, **kwargs)
 
     elif solver=="newton":
-        t0 = time.time()
-
         if h is not None:
             # With Neumann BC, choose the solution with smallest L2 norm
-            return solvers.newton(U0, G, dt, solver='lsmr',**kwargs)
+            return solvers.newton(U0, G, scipysolver='lsmr',**kwargs)
         else:
-            return solvers.newton(U0, G, dt, **kwargs)
+            return solvers.newton(U0, G, **kwargs)
