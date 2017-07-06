@@ -196,24 +196,52 @@ class FDPointCloud(object):
         def strip_neighbours(i):
             mask = self._I==i
             nb_ix = self._J[mask]
-            nv = np.sum(mask)
+            nv = nb_ix.size
             v = V[mask]
             d = D[mask]
 
             Dc = pdist(v,'cosine')
             check = Dc < colinear_tol
             if np.sum(check) > 0:
+                # pairwise combinations of stencil points
                 ij = np.array(list(itertools.combinations(range(nv),2)))
+
+                # those points that fail the colinearity test
                 doubles = ij[check]
 
-                argmin = np.argmax(d[doubles],axis=1)
-                shorter = doubles[range(doubles.shape[0]),argmin]
+                # of each pair, which if furtherst from the stencil
+                arg = np.argmax(d[doubles],axis=1)
 
-                mask =  np.in1d(range(nv),shorter,invert=True)
+                # points to discard
+                nd = doubles.shape[0]
+                ix = np.arange(nd)
+                discard = doubles[ix,arg]
 
-                keep = np.arange(nv)[mask]
-                b_ix = np.in1d(nb_ix,self.boundary)
-                keep = np.unique(np.concatenate([np.arange(nv)[b_ix],keep]))
+                # mask for those that should remain
+                mask =  np.in1d(np.arange(nv),discard,invert=True)
+
+                keep = np.arange(nv)[mask] # points that pass colinear test
+
+                # Need to deal with boundary points.
+                # Want to include boundary points with
+                # high angular resolution, but not those that
+                # fail the colinear test with interior points.
+                # --------------------------------------------
+                mask_boundary = np.reshape(np.in1d(nb_ix[doubles],self.boundary),
+                                           doubles.shape)
+                bdry_int_pair = np.logical_xor.reduce(mask_boundary,axis=1)
+                I, J = ix[bdry_int_pair], arg[bdry_int_pair]
+                bdry_discard = doubles[I,J]
+
+                boundary_mask = np.in1d(nb_ix,self.boundary)
+                boundary = np.arange(nv)[boundary_mask]
+                mask_boundary_keep = np.in1d(boundary, bdry_discard, invert=True)
+                boundary_keep = boundary[mask_boundary_keep]
+
+                #b_ix = np.in1d(nb_ix,self.boundary)
+                #boundary_keep = np.arange(nv)[b_ix]
+
+                keep = np.unique(np.concatenate([boundary_keep,keep]))
 
             else:
                 keep = np.arange(nv)

@@ -126,7 +126,7 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         M = coo_matrix((value, (i,j)), shape = [G.num_nodes]*2).tocsr()
         M = M[M.getnnz(1)>0]
     else:
-        d1u = None
+        M = None
 
     return d1u, M
 

@@ -6,8 +6,14 @@ import warnings
 import time
 from scipy.sparse.linalg import spsolve, lsmr
 
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.tri as mtri
+import matplotlib.ticker as ticker
+
+
 def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
-            timeout=None,zeromean=False):
+            timeout=None,zeromean=False,plotter=None):
     """
     Solve F[U] = 0 by iterating Euler steps until the
     stopping criteria |U^n+1 - U^n| < solution_tol.
@@ -27,6 +33,8 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
         If the operator is only unique up to a constant, then setting zeromean
         to True tells the solver to choose the solution with zero mean, where
         each point is weighted equally.
+    plotter : function
+        If provided, this function plots the solution every iteration.
 
     Returns
     -------
@@ -40,6 +48,7 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
     time : scalar
         CPU time spent computing solution.
     """
+
     t0 = time.time()
     if not timeout is None:
         timeout = time.time()+timeout
@@ -48,7 +57,11 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
         FU, dt = operator(U)
 
         U_new = U - dt * FU
-        print(np.max(np.abs(U_new)))
+
+        if plotter:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                plotter(U_new)
 
         diff = np.amax(np.absolute(U - U_new))
         if zeromean:
@@ -66,7 +79,8 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
             return U, diff, i, time.time()-t0
 
 def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
-        euler_timeout=1/9, max_euler_iters=None, scipysolver = "spsolve"):
+        euler_timeout=1/9, max_euler_iters=None, scipysolver = "spsolve",
+        plotter=None):
     """
     Use semismooth Newton's method to find the steady state F[U]=0.
 
@@ -94,6 +108,8 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
     scipysolver : string
         The scipy solver to use. Either 'spsolve' or 'lsmr'.
         Use 'lsmr' if the Jacobian has deficient rank.
+    plotter : function
+        If provided, this function plots the solution every iteration.
 
     Returns
     -------
@@ -127,19 +143,27 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
         if scipysolver == 'spsolve':
             d = spsolve(Grad, -Fu)
         elif scipysolver == 'lsmr':
-            d = lsmr(Grad, -Fu)
+            d = lsmr(Grad, -Fu)[0]
+
 
         U_new = U + np.reshape(d,U.shape)
         diff = np.amax(np.absolute(U - U_new))
         U = U_new
 
-        if euler_timeout is not None:
+        if plotter:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                plotter(U_new)
+
+        if euler_timeout ==0:
+            timeout = None
+        elif euler_timeout is not None:
             NewtonTime = time.time()-tstart
             timeout = euler_timeout*NewtonTime
         else:
             timeout = None
 
-        if (max_euler_iters is not 0) or (timeout is not None):
+        if (max_euler_iters is not 0) and (timeout is not None):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 U, diff, _, _ = euler(U, G,

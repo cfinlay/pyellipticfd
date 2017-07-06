@@ -8,6 +8,7 @@ from generate_grids import gen_grid
 
 # Grid on unit disc
 # -----------------
+h = 0.03
 Grid  = gen_grid(h,h**(1/3)*np.pi)
 plt.plot(Grid.points[:,0], Grid.points[:,1],'ro',ms=.5)
 
@@ -15,7 +16,10 @@ X, Y = Grid.points.T
 U2 = X**2 + Y**2
 
 d2, _ = ddi.d2(Grid,[1,0],U2)
-i = d2.argmax()
+i = Grid.interior[d2.argmax()]
+#d1n, _ = ddi.d1n(Grid,U2)
+#i = d1n.argmin()
+#i = Grid.boundary[i]
 
 ix = Grid.neighbours[Grid.neighbours[:,0]==i,1]
 plt.plot(Grid.points[i,0],Grid.points[i,1],'bx')
