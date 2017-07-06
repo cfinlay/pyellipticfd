@@ -183,7 +183,7 @@ def d1grad(G,u,jacobian=False,control=False):
     """
 
     if G.dim==3:
-        raise NotImplementedError("Eigenvalues not yet implemented in 3d.")
+        raise NotImplementedError("Gradient not yet implemented in 3d.")
 
     # number of directions to take, per stencil
     Nds = np.ceil(1/G.angular_resolution) # effectively dtheta^2
@@ -440,14 +440,27 @@ def d2eigs(G,u,jacobian=False, control=False):
             # Compute FD matrix, as COO scipy sparse matrix data
             j_min = np.concatenate([np.array([k]),S_f[imin], S_b[imin]])
             i_min = np.full(j_min.shape,k, dtype = np.intp)
-            val_min = np.concatenate([np.array([-(1/h_f[imin] + 1/h_b[imin])]),
-                Xi_f[imin], -Xi_b[imin]])*2/(h_f[imin]+h_b[imin])
+
+            h_fm = h_f[imin]
+            h_bm = h_b[imin]
+            xi_fm = Xi_f[imin]
+            xi_bm = Xi_b[imin]
+
+            val_min = 2/(h_fm+h_bm)*np.concatenate([np.array([-(1/h_fm + 1/h_bm)]),
+                                                    xi_fm, xi_bm])
             coo_min = (val_min,i_min,j_min)
+
 
             j_max = np.concatenate([np.array([k]),S_f[imax], S_b[imax]])
             i_max = np.full(j_max.shape,k, dtype = np.intp)
-            val_max = np.concatenate([np.array([-(1/h_f[imax] + 1/h_b[imax])]),
-                Xi_f[imax], -Xi_b[imax]])*2/(h_f[imax]+h_b[imax])
+
+            h_fp = h_f[imax]
+            h_bp = h_b[imax]
+            xi_fp = Xi_f[imax]
+            xi_bp = Xi_b[imax]
+
+            val_max = 2/(h_fp+h_bp)*np.concatenate([np.array([-(1/h_fp + 1/h_bp)]),
+                                                    xi_fp, xi_bp])
             coo_max = (val_max,i_max,j_max)
         else:
             coo_min, coo_max = [None]*2
