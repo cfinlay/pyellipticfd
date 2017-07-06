@@ -78,7 +78,7 @@ def solve(Grid,f,g,U0=None,fdmethod='interpolate', solver='newton',**kwargs):
     fdmethod : string
         Which finite difference method to use. Either 'interpolate' or 'grid'.
     solver : string
-        Which solver to use.
+        Which solver to use. Either 'euler' or 'newton'.
     **kwargs
         Additional arguments to be passed to the solver.
 
@@ -142,4 +142,4 @@ def solve(Grid,f,g,U0=None,fdmethod='interpolate', solver='newton',**kwargs):
 
         return solvers.euler(U0, G_, **kwargs)
     elif solver=="newton":
-        return solvers.newton(U0, G, scipysolver='lsmr',euler_timeout=1,**kwargs)
+        return solvers.newton(U0, G, scipysolver='lsmr',euler_ratio=1,**kwargs)

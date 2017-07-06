@@ -6,11 +6,6 @@ import warnings
 import time
 from scipy.sparse.linalg import spsolve, lsmr
 
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import matplotlib.tri as mtri
-import matplotlib.ticker as ticker
-
 
 def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
             timeout=None,zeromean=False,plotter=None):
@@ -23,7 +18,7 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
     U0 : array_like
         The initial condition.
     operator : function
-        An function returning a tuple : first, the operator value, including
+        An function returning a tuple : first, the operator value F(U), including
         points on the boundary; and second, the CFL condition.
     solution_tol : scalar
         Stopping criterion, in the infinity norm.
@@ -79,7 +74,7 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
             return U, diff, i, time.time()-t0
 
 def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
-        euler_timeout=1/9, max_euler_iters=None, scipysolver = "spsolve",
+        euler_ratio=1/9, max_euler_iters=None, scipysolver = "spsolve",
         plotter=None):
     """
     Use semismooth Newton's method to find the steady state F[U]=0.
@@ -89,7 +84,7 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
     U : array_like
         The initial condition.
     operator : function
-        An function returning a tuple of: the operator value, the Jacobian, and
+        An function returning a tuple of: the operator value F(U), the Jacobian, and
         the CFL condition.  The operator must return values for the boundary
         conditions as well.  The operator must have a boolean parameter
         'jacobian', which specifies whether to calculate the Jacobian matrix.
@@ -98,9 +93,9 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
         Stopping criterion, in the infinity norm.
     max_iters : scalar
         Maximum number of iterations.
-    euler_timeout : scalar
+    euler_ratio : scalar
         In between Newton steps, the method perform Euler steps. The scalar
-        euler_timeout gives the ratio of the time spent on Euler over the time
+        euler_ratio gives the ratio of the time spent on Euler over the time
         spent doing a Newton step.  Defaults to 1/9, ie 10% of CPU time is
         spent on Euler steps.
     max_euler_iters : scalar
@@ -135,7 +130,7 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
         max_euler_iters=U.size
 
     for i in itertools.count(1):
-        if euler_timeout is not None:
+        if euler_ratio is not None:
             tstart = time.time()
 
         Fu, Grad, _ = operator(U,jacobian=True)
@@ -155,11 +150,11 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
                 warnings.simplefilter("ignore")
                 plotter(U_new)
 
-        if euler_timeout ==0:
+        if euler_ratio ==0:
             timeout = None
-        elif euler_timeout is not None:
+        elif euler_ratio is not None:
             NewtonTime = time.time()-tstart
-            timeout = euler_timeout*NewtonTime
+            timeout = euler_ratio*NewtonTime
         else:
             timeout = None
 
