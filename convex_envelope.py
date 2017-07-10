@@ -96,9 +96,9 @@ def solve(Grid,g,U0=None,fdmethod='interpolate', solver="newton",**kwargs):
 
     if callable(g):
         g = g(Grid.points)
-        gb = g[Grid.boundary]
+        gb = g[Grid.bdry]
     else:
-        gb = g[Grid.boundary]
+        gb = g[Grid.bdry]
 
     # Initial guess
     if U0 is None:

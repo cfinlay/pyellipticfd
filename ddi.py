@@ -1,7 +1,7 @@
-"""Functions to calculate interpolating finite differences."""
+"""Functions to calculate finite differences with linear interpolation."""
 
 import numpy as np
-from scipy.sparse import coo_matrix
+from scipy.sparse import csr_matrix
 
 from pyellipticfd import _ddutils
 
@@ -21,7 +21,7 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
     jacobian : boolean
         Whether to also calculate the Jacobian M.
     domain : string
-        Which nodes to compute derivative on: one of "interior",
+        Which points to compute derivative on: one of "interior",
         "boundary", or "all". If not specified, defaults to "interior".
 
     Returns
@@ -41,9 +41,9 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
     if domain=="interior":
         Ix = G.interior
     elif domain=="boundary":
-        Ix = G.boundary
+        Ix = G.bdry
     else:
-        Ix = np.arange(G.num_nodes)
+        Ix = np.arange(G.num_points)
 
     # Get finite difference simplices on correct domain
     if not (domain=="boundary" or domain=="interior"):
@@ -53,7 +53,7 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         simplices = G.simplices[mask]
         I, S = simplices[:,0], simplices[:,1:]
 
-    X = G.vertices[S] - G.vertices[I,None] # The simplex vectors
+    X = G.points[S] - G.points[I,None] # The simplex vectors
     X = np.swapaxes(X,1,2)                 # Transpose last two axis
 
     if (domain=="interior" or domain=="boundary"):
@@ -82,7 +82,7 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
             i_f = s[mask_f][0][1:] # index of neighbours
         else:
             # Otherwise we need to be a bit more careful.
-            in_boundary = np.in1d(s[mask_f,1:],G.boundary)
+            in_boundary = np.in1d(s[mask_f,1:],G.bdry)
             mask_boundary = in_boundary.reshape((sum(mask_f),G.dim))
             mask_interior = np.logical_not(mask_boundary.all(axis=1))
 
@@ -123,7 +123,7 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         i = np.concatenate([tup[1][1] for tup in D1])
         j = np.concatenate([tup[1][2] for tup in D1])
         value = np.concatenate([tup[1][0] for tup in D1])
-        M = coo_matrix((value, (i,j)), shape = [G.num_nodes]*2).tocsr()
+        M = csr_matrix((value, (i,j)), shape = [G.num_points]*2)
         M = M[M.getnnz(1)>0]
     else:
         M = None
@@ -154,7 +154,7 @@ def d1n(G,u=None,**kwargs):
     M : scipy csr_matrix
         Finite difference matrix.
     """
-    return d1(G, -G.boundary_normals, u=u, domain='boundary', **kwargs)
+    return d1(G, -G.bdry_normals, u=u, domain='boundary', **kwargs)
 
 def d1grad(G,u,jacobian=False,control=False):
     """
@@ -197,7 +197,7 @@ def d1grad(G,u,jacobian=False,control=False):
     # Index of centre point and simplex neighbours
     I, S = G.simplices[:,0], G.simplices[:,1:]
 
-    X = G.vertices[S] - G.vertices[I,None] # The simplex vectors
+    X = G.points[S] - G.points[I,None] # The simplex vectors
     X = np.swapaxes(X,1,2)                 # Transpose last two axis
 
     V = np.einsum('ijk,kl->ijl',X,xi)
@@ -248,7 +248,7 @@ def d1grad(G,u,jacobian=False,control=False):
         i = np.concatenate([tup[1][1] for tup in e])
         j = np.concatenate([tup[1][2] for tup in e])
         val = np.concatenate([tup[1][0] for tup in e])
-        M = coo_matrix((val, (i,j)), shape = [G.num_nodes]*2).tocsr()
+        M = csr_matrix((val, (i,j)), shape = [G.num_points]*2)
         M = M[M.getnnz(1)>0]
     else:
         M = None
@@ -294,7 +294,7 @@ def d2(G,v,u=None,jacobian=False):
     interior_simplices = G.simplices[mask]
     I, S = interior_simplices[:,0], interior_simplices[:,1:]
 
-    X = G.vertices[S] - G.vertices[I,None] # The simplex vectors
+    X = G.points[S] - G.points[I,None] # The simplex vectors
     X = np.swapaxes(X,1,2)                 # Transpose last two axis
 
     # dictionary, to look up interior index from graph index
@@ -354,7 +354,7 @@ def d2(G,v,u=None,jacobian=False):
         i = np.concatenate([tup[1][1] for tup in D2])
         j = np.concatenate([tup[1][2] for tup in D2])
         value = np.concatenate([tup[1][0] for tup in D2])
-        M = coo_matrix((value, (i,j)), shape = [G.num_nodes]*2).tocsr()
+        M = csr_matrix((value, (i,j)), shape = [G.num_points]*2)
         M = M[M.getnnz(1)>0]
     else:
         M = None
@@ -399,7 +399,7 @@ def d2eigs(G,u,jacobian=False, control=False):
     # Index of centre point and simplex neighbours
     I, S = G.simplices[:,0], G.simplices[:,1:]
 
-    X = G.vertices[S] - G.vertices[I,None] # The simplex vectors
+    X = G.points[S] - G.points[I,None] # The simplex vectors
     X = np.swapaxes(X,1,2)                 # Transpose last two axis
 
     V = np.einsum('ijk,kl->ijl',X,xi)
@@ -482,13 +482,13 @@ def d2eigs(G,u,jacobian=False, control=False):
         i_min = np.concatenate([tup[0][1][1] for tup in e])
         j_min = np.concatenate([tup[0][1][2] for tup in e])
         val_min = np.concatenate([tup[0][1][0] for tup in e])
-        M_min = coo_matrix((val_min, (i_min,j_min)), shape = [G.num_nodes]*2).tocsr()
+        M_min = csr_matrix((val_min, (i_min,j_min)), shape = [G.num_points]*2)
         M_min = M_min[M_min.getnnz(1)>0]
 
         i_max = np.concatenate([tup[1][1][1] for tup in e])
         j_max = np.concatenate([tup[1][1][2] for tup in e])
         val_max = np.concatenate([tup[1][1][0] for tup in e])
-        M_max = coo_matrix((val_max, (i_max,j_max)), shape = [G.num_nodes]*2).tocsr()
+        M_max = csr_matrix((val_max, (i_max,j_max)), shape = [G.num_points]*2)
         M_max = M_max[M_max.getnnz(1)>0]
     else:
         M_min, M_max = [None]*2

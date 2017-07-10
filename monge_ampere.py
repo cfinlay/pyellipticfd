@@ -104,16 +104,16 @@ def solve(Grid,f,g,U0=None,fdmethod='interpolate', solver='newton',**kwargs):
         f = f(Grid.interior_points)
 
     if callable(g):
-        g = g(Grid.boundary_points)
+        g = g(Grid.bdry_points)
 
     # Initial guess
     if U0 is None:
         U0 = np.zeros(Grid.num_points)
-        U0[Grid.boundary] = g
+        U0[Grid.bdry] = g
 
     # Forcing function over the whole domain
     F = np.zeros(Grid.num_points)
-    F[Grid.boundary] = -g
+    F[Grid.bdry] = -g
     F[Grid.interior] = f
 
     # Define the operator on the whole domain
@@ -122,7 +122,7 @@ def solve(Grid,f,g,U0=None,fdmethod='interpolate', solver='newton',**kwargs):
 
         GW = np.zeros(Grid.num_points)
         GW[Grid.interior] = -MA
-        GW[Grid.boundary] = -W[Grid.boundary]
+        GW[Grid.bdry] = -W[Grid.bdry]
 
         if jacobian:
             Jac = sparse.diags(np.full(Grid.num_points,-1.0),format='csr')

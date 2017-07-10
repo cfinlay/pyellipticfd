@@ -1,7 +1,7 @@
 """Functions to calculate finite differences on regular grids."""
 
 import numpy as np
-from scipy.sparse import coo_matrix
+from scipy.sparse import csr_matrix
 
 from pyellipticfd import _ddutils
 
@@ -21,7 +21,7 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
     jacobian : boolean
         Whether to also calculate the Jacobian M.
     domain : string
-        Which nodes to compute derivative on: one of "interior",
+        Which points to compute derivative on: one of "interior",
         "boundary", or "all". If not specified, defaults to "interior".
 
     Returns
@@ -40,9 +40,9 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
     if domain=="interior":
         Ix = G.interior
     elif domain=="boundary":
-        Ix = G.boundary
+        Ix = G.bdry
     else:
-        Ix = np.arange(G.num_nodes)
+        Ix = np.arange(G.num_points)
 
     # Get finite difference simplices on interior
     if not (domain=="boundary" or domain=="interior"):
@@ -52,7 +52,7 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         neighbours = G.neighbours[mask]
         I, J = neighbours[:,0], neighbours[:,1]
 
-    X = G.vertices[J] - G.vertices[I] # The simplex vectors
+    X = G.points[J] - G.points[I] # The simplex vectors
     Xs = X/np.linalg.norm(X,axis=1)[:,None]
 
     if (domain=="interior" or domain=="boundary"):
@@ -104,7 +104,7 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         i = np.concatenate([tup[1][1] for tup in D1])
         j = np.concatenate([tup[1][2] for tup in D1])
         value = np.concatenate([tup[1][0] for tup in D1])
-        M = coo_matrix((value, (i,j)), shape = [G.num_nodes]*2).tocsr()
+        M = csr_matrix((value, (i,j)), shape = [G.num_points]*2)
         M = M[M.getnnz(1)>0]
     else:
         M = None
@@ -135,7 +135,7 @@ def d1n(G,u=None,**kwargs):
         Finite difference matrix. Only calculate if jacobian is True, or if u is
         not specified.
     """
-    return d1(G, -G.boundary_normals, u=u, domain='boundary', **kwargs)
+    return d1(G, -G.bdry_normals, u=u, domain='boundary', **kwargs)
 
 def d1grad(G,u,jacobian=False,control=False):
     """
@@ -165,7 +165,7 @@ def d1grad(G,u,jacobian=False,control=False):
     # Center point index, and stencil neighbours
     I, J = G.neighbours[:,0], G.neighbours[:,1]
 
-    X = G.vertices[J] - G.vertices[I] # The stencil vectors
+    X = G.points[J] - G.points[I] # The stencil vectors
     Xnorm = np.linalg.norm(X,axis=1)
 
     if control is True:
@@ -210,7 +210,7 @@ def d1grad(G,u,jacobian=False,control=False):
 
         i = np.repeat(j[:,0],2)
 
-        M = coo_matrix((w.flatten(), (i,j.flatten())), shape = [G.num_nodes]*2).tocsr()
+        M = csr_matrix((w.flatten(), (i,j.flatten())), shape = [G.num_points]*2)
         M = M[M.getnnz(1)>0]
     else:
         M = None
@@ -254,7 +254,7 @@ def d2(G,v,u=None,jacobian=False):
     # Center point index, and stencil neighbours
     I, J = G.pairs[:,0], G.pairs[:,1:]
 
-    X = G.vertices[J] - G.vertices[I,None] # The stencil vectors
+    X = G.points[J] - G.points[I,None] # The stencil vectors
     Xnorm = np.linalg.norm(X,axis=2)
     Xs = X/Xnorm[:,:,None] # Normalized, for computing cosine later
 
@@ -296,7 +296,7 @@ def d2(G,v,u=None,jacobian=False):
         j = pairs.flatten()
         weight = weight.flatten()
 
-        M = coo_matrix((weight, (i,j)), shape = [G.num_nodes]*2).tocsr()
+        M = csr_matrix((weight, (i,j)), shape = [G.num_points]*2)
         M = M[M.getnnz(1)>0]
     else:
         M = None
@@ -328,7 +328,7 @@ def d2eigs(G,u,jacobian=False,control=False):
     # Center point index, and stencil neighbours
     I, J = G.pairs[:,0], G.pairs[:,1:]
 
-    X = G.vertices[J] - G.vertices[I,None] # The stencil vectors
+    X = G.points[J] - G.points[I,None] # The stencil vectors
     Xnorm = np.linalg.norm(X,axis=2)
 
     if control is True:
@@ -376,10 +376,10 @@ def d2eigs(G,u,jacobian=False,control=False):
 
         i = np.repeat(j_min[:,0],3)
 
-        M_min = coo_matrix((w_min.flatten(), (i,j_min.flatten())), shape = [G.num_nodes]*2).tocsr()
+        M_min = csr_matrix((w_min.flatten(), (i,j_min.flatten())), shape = [G.num_points]*2)
         M_min = M_min[M_min.getnnz(1)>0]
 
-        M_max = coo_matrix((w_max.flatten(), (i,j_max.flatten())), shape = [G.num_nodes]*2).tocsr()
+        M_max = csr_matrix((w_max.flatten(), (i,j_max.flatten())), shape = [G.num_points]*2)
         M_max = M_max[M_max.getnnz(1)>0]
     else:
         M_min, M_max = [None]*2

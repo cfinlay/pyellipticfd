@@ -71,10 +71,10 @@ def solve(Grid,f=None,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate'
         f = f(Grid.interior_points)
 
     if callable(g):
-        g = g(Grid.boundary_points)
+        g = g(Grid.bdry_points)
 
     if callable(h):
-        h = h(Grid.boundary_points)
+        h = h(Grid.bdry_points)
 
 
     # Construct the finite difference operators
@@ -82,9 +82,9 @@ def solve(Grid,f=None,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate'
 
     if h is not None:
         if fdmethod=='interpolate':
-            _, d1n = ddi.d1(Grid, -Grid.boundary_normals, domain='boundary')
+            _, d1n = ddi.d1(Grid, -Grid.bdry_normals, domain='boundary')
         elif fdmethod=='grid':
-            _, d1n = ddg.d1(Grid, -Grid.boundary_normals, domain='boundary')
+            _, d1n = ddg.d1(Grid, -Grid.bdry_normals, domain='boundary')
 
     # Finite difference matrix over the whole domain
     Jac = sparse.eye(Grid.num_points,format='csr')
@@ -94,14 +94,14 @@ def solve(Grid,f=None,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate'
     if h is not None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            Jac[Grid.boundary] = d1n
+            Jac[Grid.bdry] = d1n
 
     # Forcing function over the whole domain
     F = np.zeros(Grid.num_points)
     if h is not None:
-        F[Grid.boundary] = h
+        F[Grid.bdry] = h
     else:
-        F[Grid.boundary] = g
+        F[Grid.bdry] = g
     F[Grid.interior] = f
 
     # Check that the system is consistent
@@ -120,7 +120,7 @@ def solve(Grid,f=None,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate'
         # Initial guess
         if U0 is None and g is not None:
             U0 = np.ones(Grid.num_points)
-            U0[Grid.boundary] = g
+            U0[Grid.bdry] = g
         elif U0 is None:
             U0 = np.ones(Grid.num_points)
 

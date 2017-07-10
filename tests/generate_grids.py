@@ -35,7 +35,7 @@ def gen_grid(h0, angular_resolution):
     Grid = FDTriMesh(p, tri, boundary=boundary,
                    interior=interior,
                    angular_resolution=angular_resolution,
-                   boundary_normals=p[boundary])
+                   bdry_normals=p[boundary])
 
     return Grid
 

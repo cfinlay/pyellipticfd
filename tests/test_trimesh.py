@@ -30,7 +30,7 @@ spts = Grid.points[ix]
 for pair in spts:
     plt.plot(pair[:,0],pair[:,1],'k',linewidth=.5)
 
-X,Y = Grid.boundary_points.T
+X,Y = Grid.bdry_points.T
 plt.plot(X,Y,'ko',ms='.5')
 
 plt.show()

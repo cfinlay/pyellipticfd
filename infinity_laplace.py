@@ -114,23 +114,23 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
         f = f(Grid.interior_points)
 
     if callable(g):
-        g = g(Grid.boundary_points)
+        g = g(Grid.bdry_points)
 
     if callable(h):
-        h = h(Grid.boundary_points)
+        h = h(Grid.bdry_points)
 
     if h is not None:
         if fdmethod=='interpolate':
-            d1n = ddi.d1(Grid, -Grid.boundary_normals, domain='boundary')
+            d1n = ddi.d1(Grid, -Grid.bdry_normals, domain='boundary')
         elif fdmethod=='grid':
-            d1n = ddg.d1(Grid, -Grid.boundary_normals, domain='boundary')
+            d1n = ddg.d1(Grid, -Grid.bdry_normals, domain='boundary')
 
     # Forcing function over the whole domain
     F = np.zeros(Grid.num_points)
     if h is not None:
-        F[Grid.boundary] = h
+        F[Grid.bdry] = h
     else:
-        F[Grid.boundary] = g
+        F[Grid.bdry] = g
     F[Grid.interior] = f
 
     dx = np.max([Grid.min_edge_length, Grid.min_radius])
@@ -145,9 +145,9 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
         GW[Grid.interior] = -inf_Lap
 
         if h is not None:
-            GW[Grid.boundary] = d1n.dot(W)
+            GW[Grid.bdry] = d1n.dot(W)
         else:
-            GW[Grid.boundary] = W[Grid.boundary]
+            GW[Grid.bdry] = W[Grid.bdry]
 
         if not jacobian:
             Jac = None
@@ -160,7 +160,7 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
             if h is not None:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    Jac[Grid.boundary] = d1n
+                    Jac[Grid.bdry] = d1n
 
         return GW - F, Jac, dt
 
@@ -168,7 +168,7 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
     # Initial guess
     if U0 is None and g is not None:
         U0 = np.ones(Grid.num_points)
-        U0[Grid.boundary] = g
+        U0[Grid.bdry] = g
     elif U0 is None:
         U0 = np.ones(Grid.num_points)
 
