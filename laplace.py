@@ -1,6 +1,6 @@
 import numpy as np
 
-from pyellipticfd import ddi, ddg
+from pyellipticfd import ddi, ddg, ddf
 
 def operator(Grid, U=None, jacobian=True,fdmethod='interpolate'):
     """
@@ -16,7 +16,8 @@ def operator(Grid, U=None, jacobian=True,fdmethod='interpolate'):
     jacobian : boolean
         Whether to return the finite difference matrix.
     fdmethod : string
-        Which finite difference method to use. Either 'interpolate' or 'grid'.
+        Which finite difference method to use.
+        Either 'interpolate', 'grid', or 'froese'.
 
     Returns
     -------
@@ -30,6 +31,9 @@ def operator(Grid, U=None, jacobian=True,fdmethod='interpolate'):
         D2 = [ddi.d2(Grid,e)[1] for e in np.identity(Grid.dim)]
     elif fdmethod=='grid':
         D2 = [ddg.d2(Grid,e)[1] for e in np.identity(Grid.dim)]
+    elif fdmethod=='froese':
+        D2 = [ddf.d2(Grid,e)[1] for e in np.identity(Grid.dim)]
+
     Lap = np.sum(D2)
 
     if U is not None and jacobian:

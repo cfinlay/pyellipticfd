@@ -35,7 +35,8 @@ def solve(Grid,f=None,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate'
     U0 : array_like
         Initial guess. Optional. Only used if solver is 'euler'.
     fdmethod : string
-        Which finite difference method to use. Either 'interpolate' or 'grid'.
+        Which finite difference method to use.
+        Either 'interpolate', 'grid', or 'froese'.
     solver : string
         Which solver to use. Either 'euler' or 'direct'.
     fredholm_tol : scalar
@@ -85,6 +86,8 @@ def solve(Grid,f=None,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate'
             _, d1n = ddi.d1(Grid, -Grid.bdry_normals, domain='boundary')
         elif fdmethod=='grid':
             _, d1n = ddg.d1(Grid, -Grid.bdry_normals, domain='boundary')
+        elif fdmethod=='froese':
+            raise ValueError("Neumann boundary conditions not supported for Froese's finite difference method")
 
     # Finite difference matrix over the whole domain
     Jac = sparse.eye(Grid.num_points,format='csr')

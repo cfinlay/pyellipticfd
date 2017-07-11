@@ -3,7 +3,7 @@ import numpy as np
 import time
 import scipy.sparse as sparse
 
-from pyellipticfd import ddi, ddg, solvers
+from pyellipticfd import ddi, ddg, ddf, solvers
 
 def operator(Grid,W,g,jacobian=True,fdmethod='interpolate'):
     """
@@ -20,7 +20,8 @@ def operator(Grid,W,g,jacobian=True,fdmethod='interpolate'):
     jacobian : boolean
         Whether to calculate the finite difference matrix.
     fdmethod : string
-        Which finite difference method to use. Either 'interpolate' or 'grid'.
+        Which finite difference method to use.
+        Either 'interpolate', 'grid', or 'froese'.
 
     Returns
     -------
@@ -35,6 +36,8 @@ def operator(Grid,W,g,jacobian=True,fdmethod='interpolate'):
         op = ddg.d2min(Grid,W,jacobian=jacobian,control=False)
     elif fdmethod=='interpolate':
         op = ddi.d2min(Grid,W,jacobian=jacobian,control=False)
+    elif fdmethod=='froese':
+        op = ddf.d2min(Grid,W,jacobian=jacobian,control=False)
 
     lambda1, M, _ = op
 
@@ -104,7 +107,7 @@ def solve(Grid,g,U0=None,fdmethod='interpolate', solver="newton",**kwargs):
     if U0 is None:
         U0 = np.copy(g)
 
-    dt = 1/2*np.max([Grid.min_edge_length, Grid.min_radius])**2 # CFL condition
+    dt = 1/2*np.max([Grid.min_interior_nb_dist, Grid.min_radius])**2 # CFL condition
 
     if solver=="euler":
         def G(W):
