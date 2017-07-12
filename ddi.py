@@ -1,7 +1,7 @@
 """Functions to calculate finite differences with linear interpolation."""
 
 import numpy as np
-from scipy.sparse import csr_matrix
+from scipy.sparse import coo_matrix, csr_matrix, diags
 
 from pyellipticfd import _ddutils
 
@@ -295,67 +295,47 @@ def d2(G,v,u=None,jacobian=False):
     I, S = interior_simplices[:,0], interior_simplices[:,1:]
 
     X = G.points[S] - G.points[I,None] # The simplex vectors
-    X = np.swapaxes(X,1,2)                 # Transpose last two axis
+    X = np.swapaxes(X,1,2)             # Transpose last two axis
 
-    # dictionary, to look up interior index from graph index
+    # dictionary, to lookup interior index from graph index
     d = dict(zip(G.interior,range(G.num_interior)))
     i = [d[key] for key in I]
 
     # Cone coordinates of direction to take derivative
     Xi = np.linalg.solve(X,v[i])
 
-    # Given interior index, compute directional derivative
-    def d2(k):
-        mask = I==k
-        xi = Xi[mask] # cone coordinates
-        x = X[mask]   # stencil vectors
-        s = interior_simplices[mask] # simplex indices
+    mask_f = (Xi>=0).all(axis=1)
+    mask_b = (Xi<=0).all(axis=1)
+    
+    cf, If = np.unique(I[mask_f],return_index=True)#argf(G.interior)
+    cb, Ib = np.unique(I[mask_b],return_index=True)#argb(G.interior)
 
-        # Forward direction
-        mask_f = np.squeeze((xi>=0).all(axis=1)) # Farkas' lemma
-        xi_f =  xi[mask_f][0]
-        h_f = 1/np.sum(xi_f)
+    Sf = S[mask_f][If]
+    Sb = S[mask_b][If]
 
-        # Backward direction
-        mask_b = np.squeeze((xi<=0).all(axis=1))
-        xi_b =  xi[mask_b][0]
-        h_b = -1/np.sum(xi_b)
+    Xif = Xi[mask_f][If]
+    Xib = -Xi[mask_b][Ib]
 
-        i_f = s[mask_f][0][1:]
-        i_b = s[mask_b][0][1:]
-
-        if u is not None:
-            u_f = u[i_f].dot(xi_f)
-            u_b = u[i_b].dot(-xi_b)
-
-            d2u = 2/(h_b+h_f)*(u_f + u_b - u[k]*(1/h_f + 1/h_b) )
-        else:
-            d2u=None
-
-        if jacobian is True:
-            # Compute FD matrix, as COO scipy sparse matrix data
-            j = np.concatenate([np.array([k]),i_f, i_b])
-            i = np.full(j.shape,k, dtype = np.intp)
-            value = np.concatenate([np.array([-(1/h_f + 1/h_b)]), xi_f, -xi_b])*2/(h_f+h_b)
-            coo = (value,i,j)
-        else:
-            coo=None
-
-        return  d2u, coo
-
-    D2 = [d2(k) for k in G.interior]
+    hf = 1/np.sum(Xif,axis=1)
+    hb = 1/np.sum(Xib,axis=1)
 
     if u is not None:
-        d2u = np.array([tup[0] for tup in D2])
+        dUf = np.einsum('ij,ij->i',u[Sf] - u[G.interior,None],Xif)
+        dUb = np.einsum('ij,ij->i',u[Sb] - u[G.interior,None],Xib)
+
+        d2u = 2/(hf+hb)*(dUf + dUb)
     else:
         d2u = None
 
-    if jacobian is True:
-        i = np.concatenate([tup[1][1] for tup in D2])
-        j = np.concatenate([tup[1][2] for tup in D2])
-        value = np.concatenate([tup[1][0] for tup in D2])
-        M = csr_matrix((value, (i,j)), shape = [G.num_points]*2)
+    if jacobian:
+        i = np.tile(np.repeat(G.interior,2),4)
+        j = np.concatenate([Sf.flatten(),np.repeat(G.interior,2),
+                            Sb.flatten(),np.repeat(G.interior,2)])
+        val = np.concatenate([Xif.flatten(),-Xif.flatten(),
+                              Xib.flatten(), -Xib.flatten()])
+        M = coo_matrix((val,(i,j)), shape = [G.num_points]*2).tocsr()
         M = M[M.getnnz(1)>0]
+        M = diags(2/(hf+hb),format="csr").dot(M)
     else:
         M = None
 

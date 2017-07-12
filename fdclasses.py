@@ -160,6 +160,7 @@ class FDPointCloud(object):
         bdry_normals : array_like
             Array of outward pointing normals on the boundary.
         """
+        #TODO: interior index should be sorted
 
         if angular_resolution is None:
             self.angular_resolution = angular_resolution
