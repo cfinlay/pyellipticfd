@@ -108,7 +108,7 @@ def d2(G,v,u=None,jacobian=False):
         xth_b %= 2*np.pi
         th_b = th[mask_b][0]
         th_b %= 2*np.pi
-        dth_b = xth_b - th_b 
+        dth_b = xth_b - th_b
 
         x_ = x[mask_b][0]
         h_ = np.linalg.norm(x_,axis=0)
@@ -138,7 +138,7 @@ def d2(G,v,u=None,jacobian=False):
         a2 = 2*S[2]*(C[0]*S[3] - C[3]*S[0]) / denom
         a3 = -2*S[1]*(C[0]*S[3] - C[3]*S[0]) / denom
         a4 = -2*S[0]*(C[2]*S[1] - C[1]*S[2]) / denom
-        a = np.array([a1,a2,a3,a4]) 
+        a = np.array([a1,a2,a3,a4])
 
         if u is not None:
             d2u = (a*(u[j] - u[k])).sum()
@@ -174,8 +174,11 @@ def d2(G,v,u=None,jacobian=False):
 
     return d2u, M
 
+def _num_directions(G):
+    """Number of search directions"""
+    return np.max([int(np.ceil(2*np.pi / G.angular_resolution )),4])
 
-def d2eigs(G,u,jacobian=False, control=False):
+def d2eigs(G,u,jacobian=False, control=False, cache_fdmatrices=True):
     """
     Compute the eigenvalues of the Hessian of U.
 
@@ -189,6 +192,10 @@ def d2eigs(G,u,jacobian=False, control=False):
         Whether to calculate the Jacobians for each eigenvalue.
     control : boolean
         Whether to calculate the directions of the eigenvalues.
+    cache_fdmatrices : boolean
+        If True, then the finite difference matrices used here are cached
+        in the FDPointCloud. Caching these matrices drastically improves
+        performance speed the next time d1grad is called.
 
     Returns
     -------
@@ -205,51 +212,78 @@ def d2eigs(G,u,jacobian=False, control=False):
     if G.dim==3:
         raise NotImplementedError("Eigenvalues not implemented in 3d.")
 
-    # number of directions to take
-    Nds = np.ceil(2*np.pi/G.angular_resolution)
-    if Nds < 4:
-        Nds = 4
-    th = np.arange(0,2*np.pi,2*np.pi/Nds)
-    V = np.stack([np.cos(th),np.sin(th)],axis=1)
+    cache_exists = G._d2cache is not None
+    if cache_exists:
+        if G._d2cache[0]!=__name__:
+            warnings.warn('Cache exists but not created by ', __name__, '. Overwriting.')
+            cache_fdmatrices=True
+            cache_exist=False
 
-    d2tup = [ d2(G,vec,u,jacobian=jacobian) for vec in V ]
+    if not cache_exists:
+        Nds = _num_directions(G)
+        th = np.arange(0,2*np.pi,2*np.pi/Nds)
+        V = np.stack([np.cos(th),np.sin(th)],axis=1)
 
-    d2u = np.stack([tup[0] for tup in d2tup],axis=1)
-    if jacobian:
-        Ms = [tup[1] for tup in d2tup]
+        #Take directional derivatives
+        get_fdms = cache_fdmatrices or jacobian
+        d2tup = [d2(G,v,u,jacobian=get_fdms) for v in V]
+
+        d2u = np.stack([tup[0] for tup in d2tup],axis=1)
+
+        # Finite difference matrices, for each direction
+        if get_fdms:
+            fdms = [tup[1] for tup in d2tup]
+
+        if cache_fdmatrices:
+            G._d2cache = (__name__,V,fdms)
+    else:
+        V = G._d2cache[1]
+        fdms = G._d2cache[2]
+
+        d2u = np.stack([M.dot(u) for M in fdms], axis=1)
 
     arg = np.argsort(d2u)
     ixvmin, ixvmax = arg[:,0], arg[:,-1]
-    i = np.arange(G.num_interior)
+    i = G.interior
     d2min = d2u[i,ixvmin]
     d2max = d2u[i,ixvmax]
 
     if jacobian:
-        val = []
-        row = []
-        col = []
+        val = np.zeros(5*G.num_interior)
+        col = np.zeros(5*G.num_interior,dtype=np.intp)
+        row = np.zeros(5*G.num_interior,dtype=np.intp)
 
-        for p, ix in zip(i, ixvmin):
-            Mr = (Ms[ix][p]).tocoo()
-            val.append(Mr.data)
-            col.append(Mr.col)
-            row.append(np.full(Mr.data.size,p))
+        count = 0
+        for r, ix in enumerate(ixvmin):
+            Mr = fdms[ix][r].tocoo()
+            n = Mr.data.size
 
-        M_min = csr_matrix((np.concatenate(val), (np.concatenate(row), np.concatenate(col))),
-                           shape=(G.num_interior, G.num_points))
+            val[count:(count+n)] = Mr.data
+            col[count:(count+n)] = Mr.col
+            row[count:(count+n)] = np.full(Mr.data.size,r)
 
-        val = []
-        row = []
-        col = []
+            count +=n
 
-        for p, ix in zip(i, ixvmax):
-            Mr = (Ms[ix][p]).tocoo()
-            val.append(Mr.data)
-            col.append(Mr.col)
-            row.append(np.full(Mr.data.size,p))
+        M_min = csr_matrix((val[:count], (row[:count], col[:count])),
+                        shape=(G.num_interior, G.num_points))
 
-        M_max = csr_matrix((np.concatenate(val), (np.concatenate(row), np.concatenate(col))),
-                           shape=(G.num_interior, G.num_points))
+        val = np.zeros(5*G.num_interior)
+        col = np.zeros(5*G.num_interior,dtype=np.intp)
+        row = np.zeros(5*G.num_interior,dtype=np.intp)
+
+        count = 0
+        for r, ix in enumerate(ixvmax):
+            Mr = fdms[ix][r].tocoo()
+            n = Mr.data.size
+
+            val[count:(count+n)] = Mr.data
+            col[count:(count+n)] = Mr.col
+            row[count:(count+n)] = np.full(Mr.data.size,r)
+
+            count +=n
+
+        M_max = csr_matrix((val[:count], (row[:count], col[:count])),
+                        shape=(G.num_interior, G.num_points))
 
     else:
         M_min, M_max = [None]*2

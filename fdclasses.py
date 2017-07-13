@@ -147,10 +147,6 @@ class FDPointCloud(object):
             The spatial resolution of the graph on the boundary. Every ball
             centered on the boundary, with radius 'bdry_resolution',
             contains at least onei boundary point.
-        neighbours : array_like
-            An array of neighbours, with two columns.
-            The first column gives the index of the centre stencil point;
-            the second column gives the index of a neighbour point.
         dist_to_bdry : float
             The minimum distance between interior points and boundary points.
         interior : array_like
@@ -160,7 +156,6 @@ class FDPointCloud(object):
         bdry_normals : array_like
             Array of outward pointing normals on the boundary.
         """
-        #TODO: interior index should be sorted
 
         if angular_resolution is None:
             self.angular_resolution = angular_resolution
@@ -169,28 +164,29 @@ class FDPointCloud(object):
         else:
             raise TypeError("angular_resolution must be strictly greater than 0 and less than pi")
 
-        self.points = points
         self.spatial_resolution = spatial_resolution
         self.bdry_resolution = bdry_resolution
         self.dist_to_bdry = dist_to_bdry
-        self.neighbours = neighbours
+        self.neighbours = None
         self.simplices = None
         self.pairs = None
         self.bdry_normals = bdry_normals
+        self._d1cache = None
+        self._d2cache = None
 
         if not interior is None:
-            self.interior = interior
-            if not boundary is None:
-                self.bdry = boundary
-            else:
-                mask = np.in1d(self.indices,self.interior,invert=True)
-                self.bdry = self.indices[mask]
+            if boundary is None:
+                mask = np.in1d(self.indices,interior,invert=True)
+                boundary = self.indices[mask]
         elif not boundary is None:
-            self.bdry = boundary
-            mask = np.in1d(self.indices,self.bdry,invert=True)
-            self.interior = self.indices[mask]
+            mask = np.in1d(self.indices,boundary,invert=True)
+            interior = self.indices[mask]
         else:
             raise TypeError("Please provide either boundary or interior indices")
+
+        self.num_interior = interior.size
+        self.num_bdry = boundary.size
+        self.points = np.concatenate([points[interior],points[boundary]], axis=0)
 
     @property
     def num_points(self):
@@ -209,16 +205,16 @@ class FDPointCloud(object):
         return self.points[self.interior]
 
     @property
-    def num_interior(self):
-        return self.interior.size
-
+    def interior(self):
+        return np.arange(self.num_interior)
+    
     @property
     def bdry_points(self):
         return self.points[self.bdry]
 
     @property
-    def num_boundary(self):
-        return self.bdry.size
+    def bdry(self):
+        return np.arange(self.num_interior,self.num_interior+self.num_bdry)
 
     @property
     def bbox(self):
@@ -329,6 +325,8 @@ class FDTriMesh(FDPointCloud):
         """
 
         super().__init__(p, angular_resolution=angular_resolution, **kwargs)
+
+        # TODO: sort triangulation to reflect interior/boundary order
 
         colinear_tol = 1-np.cos(angular_resolution/4)
 
@@ -487,8 +485,8 @@ class FDRegularGrid(FDPointCloud):
         Xb = np.vstack({tuple(row) for row in X})
 
         self.points = np.concatenate([Xint,Xb])
-        self.interior = np.arange(Xint.shape[0])
-        self.bdry = np.arange(Xint.shape[0],Xint.shape[0]+Xb.shape[0])
+        self.num_interior = Xint.shape[0]
+        self.num_bdry = Xb.shape[0]
 
         #TODO: normals
 
@@ -537,5 +535,8 @@ class FDRegularGrid(FDPointCloud):
             remove_colinear_neighbours(self,colinear_tol,prefer="max")
             compute_simplices(self)
             self.pairs = None
+
+        self._d1cache = None
+        self._d2cache = None
 
     # TODO redifine min_search, max_search etc

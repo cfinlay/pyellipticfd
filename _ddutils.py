@@ -9,7 +9,7 @@ def process_v(G,v,domain="interior"):
     if domain=="interior":
         N = G.num_interior
     elif domain=="boundary":
-        N = G.num_boundary
+        N = G.num_bdry
     elif domain=="all":
         N = G.num_nodes
 

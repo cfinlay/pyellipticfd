@@ -1,5 +1,6 @@
 """Functions to calculate finite differences with linear interpolation."""
 
+import warnings
 import numpy as np
 from scipy.sparse import coo_matrix, csr_matrix, diags
 
@@ -66,64 +67,23 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
     else:
         Xi = np.linalg.solve(X,v[I])
 
-    # Given interior index, compute directional derivative
-    def d1(k):
-        mask = I==k
-        xi = Xi[mask] # cone coordinates
-        x = X[mask]   # stencil vectors
-        s = simplices[mask] # simplex indices
+    mask_f = (Xi>=0).all(axis=1)
+    _, If = np.unique(I[mask_f],return_index=True)
 
-        mask_f = (xi>=0).all(axis=1) # Farkas' lemma
+    Sf = S[mask_f][If]
 
-        # If the centre point is not on the boundary,
-        # choose the first available simplex.
-        if np.in1d(k,G.interior).all():
-            xi_f =  xi[mask_f][0] # Neighbour weights
-            i_f = s[mask_f][0][1:] # index of neighbours
-        else:
-            # Otherwise we need to be a bit more careful.
-            in_boundary = np.in1d(s[mask_f,1:],G.bdry)
-            mask_boundary = in_boundary.reshape((sum(mask_f),G.dim))
-            mask_interior = np.logical_not(mask_boundary.all(axis=1))
-
-            i_f = s[mask_f]
-            i_f = np.squeeze(i_f[mask_interior,1:])
-
-            xi_f = xi[mask_f]
-            xi_f = np.squeeze(xi_f[mask_interior])
-
-        h = 1/np.sum(xi_f)  # distance to interpolation point
-
-        if u is not None:
-            u_f = u[i_f].dot(xi_f)
-            d1u = u[k]/h-u_f
-        else:
-            d1u = None
-
-        if jacobian is True:
-            # Compute FD matrix, as COO scipy sparse matrix data
-            j = np.concatenate([np.array([k]),i_f])
-            i = np.full(j.shape,k, dtype = np.intp)
-            value = -np.concatenate([np.array([-1])/h, xi_f])
-            coo = (value,i,j)
-        else:
-            coo=None
-
-
-        return  d1u, coo
-
-    D1 = [d1(k) for k in Ix]
+    Xif = Xi[mask_f][If]
 
     if u is not None:
-        d1u = np.array([tup[0] for tup in D1])
+        d1u = np.einsum('ij,ij->i',u[Sf] - u[Ix,None],Xif)
     else:
         d1u = None
 
-    if jacobian is True:
-        i = np.concatenate([tup[1][1] for tup in D1])
-        j = np.concatenate([tup[1][2] for tup in D1])
-        value = np.concatenate([tup[1][0] for tup in D1])
-        M = csr_matrix((value, (i,j)), shape = [G.num_points]*2)
+    if jacobian:
+        i = np.tile(np.repeat(Ix,2),2)
+        j = np.concatenate([Sf.flatten(), np.repeat(Ix,2)])
+        val = np.concatenate([Xif.flatten(),-Xif.flatten()])
+        M = coo_matrix((val,(i,j)), shape = [G.num_points]*2).tocsr()
         M = M[M.getnnz(1)>0]
     else:
         M = None
@@ -156,7 +116,12 @@ def d1n(G,u=None,**kwargs):
     """
     return d1(G, -G.bdry_normals, u=u, domain='boundary', **kwargs)
 
-def d1grad(G,u,jacobian=False,control=False):
+
+def _num_directions(G):
+    """Number of search directions"""
+    return np.max([int(2*np.ceil(np.pi**2 / G.angular_resolution**2 )),4])
+
+def d1grad(G,u,jacobian=False,control=False, cache_fdmatrices=True):
     """
     Compute the first derivative of U in the direction of the gradient,
     on the interior of the domain.
@@ -171,6 +136,10 @@ def d1grad(G,u,jacobian=False,control=False):
         If True, also calculate the Jacobian (finite difference matrix).
     control : boolean
         If True, also calculate the gradient direction.
+    cache_fdmatrices : boolean
+        If True, then the finite difference matrices used here are cached
+        in the FDPointCloud. Caching these matrices drastically improves
+        performance speed the next time d1grad is called.
 
     Returns
     -------
@@ -185,78 +154,69 @@ def d1grad(G,u,jacobian=False,control=False):
     if G.dim==3:
         raise NotImplementedError("Gradient not yet implemented in 3d.")
 
-    # number of directions to take, per stencil
-    Nds = np.ceil(1/G.angular_resolution) # effectively dtheta^2
-    if Nds < 1:
-        Nds = 1
+    cache_exists = G._d1cache is not None
+    if cache_exists:
+        if G._d1cache[0]!=__name__:
+            warnings.warn('Cache exists but not created by ', __name__, '. Overwriting.')
+            cache_fdmatrices=True
+            cache_exist=False
 
-    xi = np.linspace(0,1,Nds+1) # stencil coordinates of directions
-    xi = np.array([1-xi,xi])
-    Nds +=1
+    if not cache_exists:
+        # number of directions to take
+        Nds = _num_directions(G)
+        th = np.arange(0,2*np.pi,2*np.pi/Nds)
+        V = np.stack([np.cos(th),np.sin(th)],axis=1)
 
-    # Index of centre point and simplex neighbours
-    I, S = G.simplices[:,0], G.simplices[:,1:]
+        #Take directional derivatives
+        get_fdms = cache_fdmatrices or jacobian
+        d1tup = [d1(G,v,u,jacobian=get_fdms) for v in V]
 
-    X = G.points[S] - G.points[I,None] # The simplex vectors
-    X = np.swapaxes(X,1,2)                 # Transpose last two axis
+        d1u = np.stack([tup[0] for tup in d1tup],axis=1)
 
-    V = np.einsum('ijk,kl->ijl',X,xi)
-    V = V/np.linalg.norm(V,axis=1)[:,None,:]
+        # Finite difference matrices, for each direction
+        if get_fdms:
+            fdms = [tup[1] for tup in d1tup]
 
-    def grad(k):
-        mask = I==k
-        V_ = np.concatenate(V[mask],axis=1)
-        X_ = X[mask]
-        S_ = S[mask]
-        Ns = X_.shape[0] # number of simplices about the point
-        bcst_shape = np.concatenate([[Ns],V_.shape])
+        if cache_fdmatrices:
+            G._d1cache = (__name__,V,fdms)
+    else:
+        V = G._d1cache[1]
+        fdms = G._d1cache[2]
 
-        jf = np.repeat(range(Ns),Nds)
-        Xi_f = np.linalg.solve(X_[jf],V_.T)  # simplex coordinates
-        S_f = S_[jf,:]
-        h_f = 1./Xi_f.sum(axis=1)
+        d1u = np.stack([M.dot(u) for M in fdms], axis=1)
 
-        u_f = np.einsum('ij,ij->i',u[S_f],Xi_f)
-        d1u = ( u_f - u[k]/h_f)
+    ixmax = d1u.argmax(axis=1)
+    i = G.interior
+    d1_max = d1u[i,ixmax]
 
-        isort = d1u.argsort()
-        imax = isort[-1]
+    if control:
+        v = V[ixmax]
+    else:
+        v = None
 
-        d1max = d1u[imax]
+    if jacobian:
+        val = np.zeros((G.dim+1)*G.num_interior)
+        col = np.zeros((G.dim+1)*G.num_interior,dtype=np.intp)
+        row = np.zeros((G.dim+1)*G.num_interior,dtype=np.intp)
 
-        if jacobian is True:
-            # Compute FD matrix, as COO scipy sparse matrix data
-            j = np.concatenate([np.array([k]),S_f[imax]])
-            i = np.full(j.shape,k, dtype = np.intp)
-            val = np.concatenate([np.array([-1/h_f[imax] ]), Xi_f[imax] ])
-            coo = (val,i,j)
-        else:
-            coo = None
+        count = 0
+        for r, ix in enumerate(ixmax):
+            Mr = fdms[ix][r].tocoo()
+            n = Mr.data.size
 
-        if control is True:
-            v = V_[:,imax]
-        else:
-            v = None
+            val[count:(count+n)] = Mr.data
+            col[count:(count+n)] = Mr.col
+            row[count:(count+n)] = np.full(Mr.data.size,r)
 
-        return d1max,coo, v
+            count +=n
 
-    e = [grad(k) for k in G.interior]
 
-    d1_max = np.array([tup[0] for tup in e])
 
-    if jacobian is True:
-        i = np.concatenate([tup[1][1] for tup in e])
-        j = np.concatenate([tup[1][2] for tup in e])
-        val = np.concatenate([tup[1][0] for tup in e])
-        M = csr_matrix((val, (i,j)), shape = [G.num_points]*2)
-        M = M[M.getnnz(1)>0]
+        M = csr_matrix((val[:count], (row[:count], col[:count])),
+                        shape=(G.num_interior, G.num_points))
     else:
         M = None
 
-    if control is True:
-        v = np.array([tup[2] for tup in e])
-    else:
-        v = None
 
     return d1_max, M, v
 
@@ -306,9 +266,9 @@ def d2(G,v,u=None,jacobian=False):
 
     mask_f = (Xi>=0).all(axis=1)
     mask_b = (Xi<=0).all(axis=1)
-    
-    cf, If = np.unique(I[mask_f],return_index=True)#argf(G.interior)
-    cb, Ib = np.unique(I[mask_b],return_index=True)#argb(G.interior)
+
+    _, If = np.unique(I[mask_f],return_index=True)
+    _, Ib = np.unique(I[mask_b],return_index=True)
 
     Sf = S[mask_f][If]
     Sb = S[mask_b][If]
@@ -342,7 +302,7 @@ def d2(G,v,u=None,jacobian=False):
     return d2u, M
 
 
-def d2eigs(G,u,jacobian=False, control=False):
+def d2eigs(G,u,jacobian=False, control=False, cache_fdmatrices=True):
     """
     Compute the eigenvalues of the Hessian of U.
 
@@ -356,6 +316,10 @@ def d2eigs(G,u,jacobian=False, control=False):
         Whether to calculate the Jacobians for each eigenvalue.
     control : boolean
         Whether to calculate the directions of the eigenvalues.
+    cache_fdmatrices : boolean
+        If True, then the finite difference matrices used here are cached
+        in the FDPointCloud. Caching these matrices drastically improves
+        performance speed the next time d2eigs is called.
 
     Returns
     -------
@@ -367,115 +331,84 @@ def d2eigs(G,u,jacobian=False, control=False):
     if G.dim==3:
         raise NotImplementedError("Eigenvalues not yet implemented in 3d.")
 
-    # number of directions to take, per stencil
-    Nds = np.ceil(1/G.angular_resolution) # effectively dtheta^2
-    if Nds < 1:
-        Nds = 1
+    cache_exists = G._d2cache is not None
+    if cache_exists:
+        if G._d2cache[0]!=__name__:
+            warnings.warn('Cache exists but not created by ', __name__, '. Overwriting.')
+            cache_fdmatrices=True
+            cache_exist=False
 
-    xi = np.linspace(0,1,Nds+1) # stencil coordinates of directions
-    xi = np.array([1-xi,xi])
-    Nds +=1
+    if not cache_exists:
+        Nds = _num_directions(G)
+        th = np.arange(0,2*np.pi,2*np.pi/Nds)
+        V = np.stack([np.cos(th),np.sin(th)],axis=1)
 
-    # Index of centre point and simplex neighbours
-    I, S = G.simplices[:,0], G.simplices[:,1:]
+        #Take directional derivatives
+        get_fdms = cache_fdmatrices or jacobian
+        d2tup = [d2(G,v,u,jacobian=get_fdms) for v in V]
 
-    X = G.points[S] - G.points[I,None] # The simplex vectors
-    X = np.swapaxes(X,1,2)                 # Transpose last two axis
+        d2u = np.stack([tup[0] for tup in d2tup],axis=1)
 
-    V = np.einsum('ijk,kl->ijl',X,xi)
-    V = V/np.linalg.norm(V,axis=1)[:,None,:]
+        # Finite difference matrices, for each direction
+        if get_fdms:
+            fdms = [tup[1] for tup in d2tup]
 
-    def eigs(k):
-        mask = I==k
-        V_ = np.concatenate(V[mask],axis=1)
-        X_ = X[mask]
-        S_ = S[mask]
-        Ns = X_.shape[0] # number of simplices about the point
-        bcst_shape = np.concatenate([[Ns],V_.shape])
+        if cache_fdmatrices:
+            G._d2cache = (__name__,V,fdms)
+    else:
+        V = G._d2cache[1]
+        fdms = G._d2cache[2]
 
-        jf = np.repeat(range(Ns),Nds)
-        Xi_f = np.linalg.solve(X_[jf],V_.T)  # simplex coordinates
-        S_f = S_[jf,:]
-        h_f = 1./Xi_f.sum(axis=1)
+        d2u = np.stack([M.dot(u) for M in fdms], axis=1)
 
-        V_bc = np.broadcast_to(V_,bcst_shape)
-        Xi_ = np.linalg.solve(X_,-V_bc)  # simplex coordinates
-        ixb = np.where((Xi_>=0).all(axis=1))
-        _, j = np.unique(ixb[1], return_index=True)
-        jb = ixb[0][j]
-        Xi_b = Xi_[jb,:,np.arange(Nds*Ns,dtype=np.intp)]
-        S_b = S_[jb,:]
-        h_b = 1./Xi_b.sum(axis=1)
+    arg = np.argsort(d2u)
+    ixvmin, ixvmax = arg[:,0], arg[:,-1]
+    i = G.interior
+    d2min = d2u[i,ixvmin]
+    d2max = d2u[i,ixvmax]
 
-        u_f = np.einsum('ij,ij->i',u[S_f],Xi_f)
-        u_b = np.einsum('ij,ij->i',u[S_b],Xi_b)
-        d2u = 2/(h_b+h_f)*( u_f + u_b - u[k]*(1/h_f +1/h_b))
+    if jacobian:
+        val = np.zeros((2*G.dim+1)*G.num_interior)
+        col = np.zeros((2*G.dim+1)*G.num_interior,dtype=np.intp)
+        row = np.zeros((2*G.dim+1)*G.num_interior,dtype=np.intp)
 
-        isort = d2u.argsort()
-        imin, imax = isort[[0,-1]]
+        count = 0
+        for r, ix in enumerate(ixvmin):
+            Mr = fdms[ix][r].tocoo()
+            n = Mr.data.size
 
-        d2min, d2max = d2u[[imin,imax]]
+            val[count:(count+n)] = Mr.data
+            col[count:(count+n)] = Mr.col
+            row[count:(count+n)] = np.full(Mr.data.size,r)
 
-        if jacobian is True:
-            # Compute FD matrix, as COO scipy sparse matrix data
-            j_min = np.concatenate([np.array([k]),S_f[imin], S_b[imin]])
-            i_min = np.full(j_min.shape,k, dtype = np.intp)
+            count +=n
 
-            h_fm = h_f[imin]
-            h_bm = h_b[imin]
-            xi_fm = Xi_f[imin]
-            xi_bm = Xi_b[imin]
+        M_min = csr_matrix((val[:count], (row[:count], col[:count])),
+                        shape=(G.num_interior, G.num_points))
 
-            val_min = 2/(h_fm+h_bm)*np.concatenate([np.array([-(1/h_fm + 1/h_bm)]),
-                                                    xi_fm, xi_bm])
-            coo_min = (val_min,i_min,j_min)
+        val = np.zeros((2*G.dim+1)*G.num_interior)
+        col = np.zeros((2*G.dim+1)*G.num_interior,dtype=np.intp)
+        row = np.zeros((2*G.dim+1)*G.num_interior,dtype=np.intp)
 
+        count = 0
+        for r, ix in enumerate(ixvmax):
+            Mr = fdms[ix][r].tocoo()
+            n = Mr.data.size
 
-            j_max = np.concatenate([np.array([k]),S_f[imax], S_b[imax]])
-            i_max = np.full(j_max.shape,k, dtype = np.intp)
+            val[count:(count+n)] = Mr.data
+            col[count:(count+n)] = Mr.col
+            row[count:(count+n)] = np.full(Mr.data.size,r)
 
-            h_fp = h_f[imax]
-            h_bp = h_b[imax]
-            xi_fp = Xi_f[imax]
-            xi_bp = Xi_b[imax]
+            count +=n
 
-            val_max = 2/(h_fp+h_bp)*np.concatenate([np.array([-(1/h_fp + 1/h_bp)]),
-                                                    xi_fp, xi_bp])
-            coo_max = (val_max,i_max,j_max)
-        else:
-            coo_min, coo_max = [None]*2
+        M_max = csr_matrix((val[:count], (row[:count], col[:count])),
+                        shape=(G.num_interior, G.num_points))
 
-        if control is True:
-            v_min = V_[:,imin]
-            v_max = V_[:,imax]
-        else:
-            v_min, v_max = [None]*2
-
-        return (d2min,coo_min, v_min), (d2max,coo_max, v_max)
-
-    e = [eigs(k) for k in G.interior]
-
-    d2min = np.array([tup[0][0] for tup in e])
-    d2max = np.array([tup[1][0] for tup in e])
-
-    if jacobian is True:
-        i_min = np.concatenate([tup[0][1][1] for tup in e])
-        j_min = np.concatenate([tup[0][1][2] for tup in e])
-        val_min = np.concatenate([tup[0][1][0] for tup in e])
-        M_min = csr_matrix((val_min, (i_min,j_min)), shape = [G.num_points]*2)
-        M_min = M_min[M_min.getnnz(1)>0]
-
-        i_max = np.concatenate([tup[1][1][1] for tup in e])
-        j_max = np.concatenate([tup[1][1][2] for tup in e])
-        val_max = np.concatenate([tup[1][1][0] for tup in e])
-        M_max = csr_matrix((val_max, (i_max,j_max)), shape = [G.num_points]*2)
-        M_max = M_max[M_max.getnnz(1)>0]
     else:
         M_min, M_max = [None]*2
 
-    if control is True:
-        v_min = np.array([tup[0][2] for tup in e])
-        v_max = np.array([tup[1][2] for tup in e])
+    if control:
+        v_min, v_max = V[ixvmin], V[ixvmax]
     else:
         v_min, v_max = [None]*2
 
