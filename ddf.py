@@ -1,7 +1,7 @@
 """Functions to calculate finite differences with Froese's method in 2D."""
 
 import numpy as np
-from scipy.sparse import csr_matrix
+from scipy.sparse import coo_matrix, csr_matrix
 
 from pyellipticfd import _ddutils, ddg
 
@@ -48,9 +48,9 @@ def d2(G,v,u=None,jacobian=False):
     interior_simplices = G.simplices[mask]
     I, S = interior_simplices[:,0], interior_simplices[:,1:]
 
-    X = G.points[S] - G.points[I,None] # The simplex vectors
-    X = np.swapaxes(X,1,2)                 # Transpose last two axis
-    Xth = np.arctan2(X[:,1,:],X[:,0,:])
+    X = G.points[S] - G.points[I,None]  # The simplex vectors
+    X = np.swapaxes(X,1,2)              # Transpose last two axis
+    Xth = np.arctan2(X[:,1,:],X[:,0,:]) # angle of the simplex vectors
 
     # dictionary, to look up interior index from graph index
     d = dict(zip(G.interior,range(G.num_interior)))
@@ -58,117 +58,73 @@ def d2(G,v,u=None,jacobian=False):
 
     # Cone coordinates of direction to take derivative
     Xi = np.linalg.solve(X,v[i])
-    vth = vth[i]
 
-    # Given interior index, compute directional derivative
-    def d2(k):
-        mask = I==k
-        xi = Xi[mask] # cone coordinates
-        x = X[mask]   # stencil vectors
-        s = interior_simplices[mask] # simplex indices
+    mask_f = (Xi>=0).all(axis=1) # Farkas' lemma: in which simplex does the direction lie?
+    mask_b = (Xi<=0).all(axis=1)
 
-        th = vth[mask]
-        xth = Xth[mask]
-        dth = xth - th[:,None]
+    # There could be multiple simplices for each direction. Choose one.
+    _, If = np.unique(I[mask_f],return_index=True)
+    _, Ib = np.unique(I[mask_b],return_index=True)
 
-        # Forward direction
-        mask_f = np.squeeze((xi>=0).all(axis=1)) # Farkas' lemma
-        xth_f = xth[mask_f][0]
-        th_f = th[mask_f][0]
-        dth_f = dth[mask_f][0]
-        m = dth_f < -np.pi
-        dth_f[m] = dth_f[m]+2*np.pi
-        x_ = x[mask_f][0]
-        h_ = np.linalg.norm(x_,axis=0)
-        s_ = s[mask_f][0][1:]
-        if (dth_f!=0).all():
-            h1, h4 = h_[dth_f>0], h_[dth_f<0]
-            th1, th4 = dth_f[dth_f>0], dth_f[dth_f<0]
-            j1,j4 = s_[dth_f>0], s_[dth_f<0]
-        elif (dth_f>=0).all():
-            h1, h4 = h_[dth_f>0], h_[dth_f==0]
-            th1, th4 = dth_f[dth_f>0], dth_f[dth_f==0]
-            j1,j4 = s_[dth_f>0], s_[dth_f==0]
-        elif (dth_f<=0).all():
-            h1, h4 = h_[dth_f==0], h_[dth_f<0]
-            th1, th4 = dth_f[dth_f==0], dth_f[dth_f<0]
-            j1,j4 = s_[dth_f==0], s_[dth_f<0]
+    # Forward and backward simplices
+    Xf = X[mask_f][If]
+    Xb = X[mask_b][Ib]
 
-        # Backward direction
-        mask_b = np.squeeze((xi<=0).all(axis=1)) # Farkas' lemma
-        xth_b = xth[mask_b][0]
-        xth_b %= 2*np.pi
-        th_b = th[mask_b][0]+np.pi
-        th_b %= 2*np.pi
-        Bdth_b = xth_b - th_b
-        m = Bdth_b >np.pi
-        Bdth_b[m] = Bdth_b[m] - 2*np.pi
+    # Concatenate them together
+    X = np.concatenate([Xf, Xb],axis=2)
+    h = np.linalg.norm(X,axis=1)
 
-        xth_b = xth[mask_b][0]
-        xth_b %= 2*np.pi
-        th_b = th[mask_b][0]
-        th_b %= 2*np.pi
-        dth_b = xth_b - th_b
+    # Angles for each stencil vector
+    Xthf = Xth[mask_f][If]
+    Xthb = Xth[mask_b][Ib]
+    Xth = np.concatenate([Xthf, Xthb],axis=1)
 
-        x_ = x[mask_b][0]
-        h_ = np.linalg.norm(x_,axis=0)
-        s_ = s[mask_b][0][1:]
-        if (Bdth_b!=0).all():
-            h3, h2 = h_[Bdth_b>0], h_[Bdth_b<0]
-            th3, th2 = dth_b[Bdth_b>0], dth_b[Bdth_b<0]
-            j3,j2 = s_[Bdth_b>0], s_[Bdth_b<0]
-        elif (Bdth_b>=0).all():
-            h3, h2 = h_[Bdth_b>0], h_[Bdth_b==0]
-            th3, th2 = dth_b[Bdth_b>0], dth_b[Bdth_b==0]
-            j3,j2 = s_[Bdth_b>0], s_[Bdth_b==0]
-        elif (Bdth_b<=0).all():
-            h3, h2 = h_[Bdth_b==0], h_[Bdth_b<0]
-            th3, th2 = dth_b[Bdth_b==0], dth_b[Bdth_b<0]
-            j3,j2 = s_[Bdth_b==0], s_[Bdth_b<0]
+    # Simplex indices
+    Sf = S[mask_f][If]
+    Sb = S[mask_b][If]
+    S = np.concatenate([Sf,Sb],axis=1)
 
-        h = np.squeeze(np.array([h1,h2,h3,h4]))
-        th = np.squeeze(np.array([th1,th2,th3,th4]))
-        C = h * np.cos(th)
-        S = h*np.sin(th)
-        j = np.squeeze(np.array([j1,j2,j3,j4]))
+    # Angle with respect to direction vector
+    dth = Xth - vth[:, None]
+    dth %= 2*np.pi
 
-        denom = ((C[2]*S[1] - C[1]*S[2]) * (C[0]**2*S[3]-C[3]**2*S[0]) -
-                (C[0]*S[3]-C[3]*S[0])*(C[2]**2*S[1] - C[1]**2*S[2]))
-        a1 = 2*S[3]*(C[2]*S[1] - C[1]*S[2]) / denom
-        a2 = 2*S[2]*(C[0]*S[3] - C[3]*S[0]) / denom
-        a3 = -2*S[1]*(C[0]*S[3] - C[3]*S[0]) / denom
-        a4 = -2*S[0]*(C[2]*S[1] - C[1]*S[2]) / denom
-        a = np.array([a1,a2,a3,a4])
+    # Sort by quadrant
+    jsort = np.argsort(dth)
+    i = np.indices(dth.shape)[0]
 
-        if u is not None:
-            d2u = (a*(u[j] - u[k])).sum()
-        else:
-            d2u=None
+    dth = dth[i,jsort]
+    S = S[i,jsort]
+    h = h[i,jsort]
 
-        if jacobian is True:
-            # Compute FD matrix, as COO scipy sparse matrix data
-            j = np.concatenate([np.array([k]),j])
-            i = np.full(j.shape,k, dtype = np.intp)
-            value = np.concatenate([np.array([-a.sum()]),a])
-            coo = (value,i,j)
-        else:
-            coo=None
+    c = h*np.cos(dth)
+    s = h*np.sin(dth)
 
-        return  d2u, coo
+    # It could be that the point in the fourth quadrant lies on the direction vector,
+    # in which case the above would have sorted the points incorrectly.
+    m = np.logical_and.reduce([c[:,0] >=0, c[:,1]>=0,
+                               s[:,0] >=0, s[:,1]>=0],axis=0)
+    c[m] = np.roll(c[m],-1,axis=1)
+    s[m] = np.roll(s[m],-1,axis=1)
+    S[m] = np.roll(S[m],-1,axis=1)
 
-    D2 = [d2(k) for k in G.interior]
+    denom = ((c[:,2]*s[:,1] - c[:,1]*s[:,2]) * (c[:,0]**2*s[:,3]-c[:,3]**2*s[:,0]) -
+            (c[:,0]*s[:,3]-c[:,3]*s[:,0])*(c[:,2]**2*s[:,1] - c[:,1]**2*s[:,2]))
+    a1 = 2*s[:,3]*(c[:,2]*s[:,1] - c[:,1]*s[:,2]) / denom
+    a2 = 2*s[:,2]*(c[:,0]*s[:,3] - c[:,3]*s[:,0]) / denom
+    a3 = -2*s[:,1]*(c[:,0]*s[:,3] - c[:,3]*s[:,0]) / denom
+    a4 = -2*s[:,0]*(c[:,2]*s[:,1] - c[:,1]*s[:,2]) / denom
+    a = np.stack([a1,a2,a3,a4],axis=1)
 
     if u is not None:
-        d2u = np.array([tup[0] for tup in D2])
+        d2u = np.sum(a*(u[S] - u[G.interior,None]),axis=1)
     else:
         d2u = None
 
-    if jacobian is True:
-        i = np.concatenate([tup[1][1] for tup in D2])
-        j = np.concatenate([tup[1][2] for tup in D2])
-        value = np.concatenate([tup[1][0] for tup in D2])
-        M = csr_matrix((value, (i,j)), shape = [G.num_points]*2)
-        M = M[M.getnnz(1)>0]
+    if jacobian:
+        i = np.tile(np.repeat(G.interior,2*G.dim),2)
+        j = np.concatenate([S.flatten(),np.repeat(G.interior,2*G.dim)])
+        val = np.concatenate([a.flatten(),-a.flatten()])
+        M = coo_matrix((val,(i,j)), shape = (G.num_interior,G.num_points)).tocsr()
     else:
         M = None
 

@@ -207,7 +207,7 @@ class FDPointCloud(object):
     @property
     def interior(self):
         return np.arange(self.num_interior)
-    
+
     @property
     def bdry_points(self):
         return self.points[self.bdry]

@@ -14,11 +14,11 @@ shape = [N for i in range(d)]
 bounds = np.array([xi for i in range(d)]).T
 r = 2
 
-G = FDRegularGrid(shape,bounds,r)
-X = G.vertices[:,0]
-Y = G.vertices[:,1]
+G = FDRegularGrid(shape,bounds,r,interpolation=False)
+X = G.points[:,0]
+Y = G.points[:,1]
 if d==3:
-    Z = G.vertices[:,2]
+    Z = G.points[:,2]
 else:
     Z = 0
 
@@ -62,7 +62,7 @@ tri = dly.simplices
 Grid = FDTriMesh(p, tri, boundary=boundary,
                interior=interior,
                angular_resolution=3/4*np.pi,
-               boundary_normals=p[boundary])
+               bdry_normals=p[boundary])
 U = np.linalg.norm(Grid.points, axis=1)
 
 d1n, M_d1n = ddg.d1n(Grid, u=U, jacobian=True)

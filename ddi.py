@@ -23,7 +23,7 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         Whether to also calculate the Jacobian M.
     domain : string
         Which points to compute derivative on: one of "interior",
-        "boundary", or "all". If not specified, defaults to "interior".
+        "boundary". If not specified, defaults to "interior".
 
     Returns
     -------
@@ -43,31 +43,28 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         Ix = G.interior
     elif domain=="boundary":
         Ix = G.bdry
-    else:
-        Ix = np.arange(G.num_points)
 
     # Get finite difference simplices on correct domain
-    if not (domain=="boundary" or domain=="interior"):
-        I, S = G.simplices[:,0], G.simplices[:,1:]
-    else:
-        mask = np.in1d(G.simplices[:,0], Ix)
-        simplices = G.simplices[mask]
-        I, S = simplices[:,0], simplices[:,1:]
+    mask = np.in1d(G.simplices[:,0], Ix)
+    simplices = G.simplices[mask]
+    I, S = simplices[:,0], simplices[:,1:]
 
     X = G.points[S] - G.points[I,None] # The simplex vectors
-    X = np.swapaxes(X,1,2)                 # Transpose last two axis
+    X = np.swapaxes(X,1,2)             # Transpose last two axis
 
-    if (domain=="interior" or domain=="boundary"):
-        # dictionary, to look up domain index from graph index
-        d = dict(zip(Ix,range(Ix.size)))
-        i = [d[key] for key in I]
+    # dictionary, to look up domain index from graph index
+    d = dict(zip(Ix,range(Ix.size)))
+    i = [d[key] for key in I]
 
-        # Cone coordinates of direction to take derivative
-        Xi = np.linalg.solve(X,v[i])
-    else:
-        Xi = np.linalg.solve(X,v[I])
+    # Cone coordinates of direction to take derivative
+    Xi = np.linalg.solve(X,v[i])
 
-    mask_f = (Xi>=0).all(axis=1)
+    if domain=="interior":
+        mask_f = (Xi>=0).all(axis=1)
+    elif domain=="boundary":
+        mask = np.logical_and(Xi>=0, np.reshape(np.in1d(S,G.interior),S.shape))
+        mask_f = mask.all(axis=1)
+
     _, If = np.unique(I[mask_f],return_index=True)
 
     Sf = S[mask_f][If]
@@ -80,8 +77,8 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
         d1u = None
 
     if jacobian:
-        i = np.tile(np.repeat(Ix,2),2)
-        j = np.concatenate([Sf.flatten(), np.repeat(Ix,2)])
+        i = np.tile(np.repeat(Ix,G.dim),2)
+        j = np.concatenate([Sf.flatten(), np.repeat(Ix,G.dim)])
         val = np.concatenate([Xif.flatten(),-Xif.flatten()])
         M = coo_matrix((val,(i,j)), shape = [G.num_points]*2).tocsr()
         M = M[M.getnnz(1)>0]
@@ -264,7 +261,7 @@ def d2(G,v,u=None,jacobian=False):
     # Cone coordinates of direction to take derivative
     Xi = np.linalg.solve(X,v[i])
 
-    mask_f = (Xi>=0).all(axis=1)
+    mask_f = (Xi>=0).all(axis=1)# Farkas' lemma: in which simplex does the direction lie
     mask_b = (Xi<=0).all(axis=1)
 
     _, If = np.unique(I[mask_f],return_index=True)
@@ -288,13 +285,12 @@ def d2(G,v,u=None,jacobian=False):
         d2u = None
 
     if jacobian:
-        i = np.tile(np.repeat(G.interior,2),4)
-        j = np.concatenate([Sf.flatten(),np.repeat(G.interior,2),
-                            Sb.flatten(),np.repeat(G.interior,2)])
+        i = np.tile(np.repeat(G.interior,G.dim),4)
+        j = np.concatenate([Sf.flatten(),np.repeat(G.interior,G.dim),
+                            Sb.flatten(),np.repeat(G.interior,G.dim)])
         val = np.concatenate([Xif.flatten(),-Xif.flatten(),
                               Xib.flatten(), -Xib.flatten()])
-        M = coo_matrix((val,(i,j)), shape = [G.num_points]*2).tocsr()
-        M = M[M.getnnz(1)>0]
+        M = coo_matrix((val,(i,j)), shape = (G.num_interior,G.num_points)).tocsr()
         M = diags(2/(hf+hb),format="csr").dot(M)
     else:
         M = None
