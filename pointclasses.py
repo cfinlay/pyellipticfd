@@ -129,17 +129,20 @@ class FDPointCloud(object):
 
     #TODO: generate neighbours, simplices without triangulation
     def __init__(self, points, angular_resolution=None,
-            spatial_resolution=None, neighbours=None,
+            num_interior=None, spatial_resolution=None, neighbours=None,
             bdry_resolution=None, dist_to_bdry=None,
-            interior=None, boundary=None, bdry_normals=None):
+            bdry_normals=None):
         """Initialize a finite difference point cloud.
 
         Parameters
         ----------
         points : array_like
-            An NxD array, listing N points in D dimensions.
+            An NxD array, listing N points in D dimensions, ordered with
+            interior points first, then boundary points.
         angular_resolution : float
             The desired angular resolution.
+        num_interior : int
+            Number of interior points.
         spatial_resolution : float
             The spatial resolution of the graph. Every ball with radius
             'spatial_resolution' contains at least one point.
@@ -149,13 +152,11 @@ class FDPointCloud(object):
             contains at least onei boundary point.
         dist_to_bdry : float
             The minimum distance between interior points and boundary points.
-        interior : array_like
-            Indices for interior points.
-        boundary : array_like
-            Indices for boundary points.
         bdry_normals : array_like
             Array of outward pointing normals on the boundary.
         """
+        if num_interior is None:
+            raise TypeError("Please provide the number of interior points")
 
         if angular_resolution is None:
             self.angular_resolution = angular_resolution
@@ -174,19 +175,10 @@ class FDPointCloud(object):
         self._d1cache = None
         self._d2cache = None
 
-        if not interior is None:
-            if boundary is None:
-                mask = np.in1d(self.indices,interior,invert=True)
-                boundary = self.indices[mask]
-        elif not boundary is None:
-            mask = np.in1d(self.indices,boundary,invert=True)
-            interior = self.indices[mask]
-        else:
-            raise TypeError("Please provide either boundary or interior indices")
 
-        self.num_interior = interior.size
-        self.num_bdry = boundary.size
-        self.points = np.concatenate([points[interior],points[boundary]], axis=0)
+        self.num_interior = num_interior
+        self.num_bdry = points.shape[0]-num_interior
+        self.points = points
 
     @property
     def num_points(self):
@@ -316,17 +308,13 @@ class FDTriMesh(FDPointCloud):
             tetrahedra in 3d).
         angular_resolution : float
             The desired angular resolution.
-        interior : array
-            Indices for interior points.
-        boundary : array
-            Indices for boundary points.
+        num_interior : int
+            Number of interior points.
         bdry_normals : array_like
             Array of outward pointing normals on the boundary.
         """
 
         super().__init__(p, angular_resolution=angular_resolution, **kwargs)
-
-        # TODO: sort triangulation to reflect interior/boundary order
 
         colinear_tol = 1-np.cos(angular_resolution/4)
 
@@ -418,6 +406,24 @@ class FDTriMesh(FDPointCloud):
         compute_simplices(self)
 
 
+def _reg_normals(Grid):
+    """Compute normal directions on rectangular grid."""
+    Xb = Grid.bdry_points
+    Grid.normals = np.zeros(Xb.shape)
+    M = Xb.max(0)
+    for i in range(Grid.dim):
+        m = Xb[:,i]==0
+        n = np.zeros(Grid.dim)
+        n[i] = -1.
+        Grid.normals[m,i] = -1.
+
+        m = Xb[:,i] == M[i]
+        n = np.zeros(Grid.dim)
+        n[i] = 1.
+        Grid.normals[m,i] = 1.
+
+    h = np.linalg.norm(Grid.normals,axis=1)
+    Grid.normals = Grid.normals/h[:,None]
 
 
 class FDRegularGrid(FDPointCloud):
@@ -447,6 +453,7 @@ class FDRegularGrid(FDPointCloud):
             in grid directions.
         """
         #TODO need minimum search radius to guarantee converence for interpolation method...
+        #TODO redifine min_search, max_search etc
 
         self.stencil_radius = stencil_radius
 
@@ -488,7 +495,8 @@ class FDRegularGrid(FDPointCloud):
         self.num_interior = Xint.shape[0]
         self.num_bdry = Xb.shape[0]
 
-        #TODO: normals
+        # Get boundary normals
+        _reg_normals(self)
 
         # Function to compute maximum side length
         d = lambda u, v : np.max(np.abs(u-v))
@@ -538,5 +546,3 @@ class FDRegularGrid(FDPointCloud):
 
         self._d1cache = None
         self._d2cache = None
-
-    # TODO redifine min_search, max_search etc

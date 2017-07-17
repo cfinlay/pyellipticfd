@@ -1,23 +1,49 @@
 from pathlib import Path
 import pickle
 
-import generate_grids
-
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.tri as mtri
 import matplotlib.ticker as ticker
 
-def discs(n):
-    ud = Path("unit_discs.p")
+import numpy as np
+import distmesh as dm
+from scipy.spatial import ConvexHull, Delaunay
 
-    if not ud.is_file():
-        generate_grids.main()
+from pyellipticfd.pointclasses import FDTriMesh
+
+# Uniform grid on unit circle
+# ---------------------------
+def disc_mesh(h0, angular_resolution):
+    hB = h0/2*np.tan(angular_resolution/2)
+    c = np.max([hB*(-1 + 2/np.sin(angular_resolution/2)),
+                2*hB/np.tan(angular_resolution/2)])
+    fd = lambda p : np.sqrt((p**2).sum(1))-(1.0-c)
+    p, _ = dm.distmesh2d(fd, dm.huniform, h0, (-1,-1,1,1),fig=None)
+
+    # add a fine boundary resolution
+    hB = h0/2*np.tan(angular_resolution/2)
+    th = np.arange(0,2*np.pi,hB)
+    if th[-2] == np.pi*2:
+        th = th[0:-1]
+    p = np.concatenate([p,np.array([np.cos(th),np.sin(th)]).T])
+    boundary = np.arange(p.shape[0]-th.size,p.shape[0])
+    interior = np.arange(p.shape[0]-th.size)
+    dly = Delaunay(p)
+    tri = dly.simplices
+
+    Grid = FDTriMesh(p, tri, boundary=boundary,
+                   interior=interior,
+                   angular_resolution=angular_resolution,
+                   bdry_normals=p[boundary])
+
+    return Grid
+
+def disc(h):
 
     # Uniform grid on unit circle
     # ---------------------------
-    Grids = pickle.load(open(ud,"rb"))
-    Grid = Grids[n]['Grid']
+    Grid = disc_mesh(h, np.pi*h**(1/3))
     tri = Grid.triangulation
 
 
@@ -39,3 +65,19 @@ def discs(n):
         plt.show()
 
     return Grid, plot_sol
+
+def main():
+    d = np.power(np.array(2.0),np.arange(-5,-12,-1))
+    h = np.sqrt(d)
+    dth0 = h**(1/3)*np.pi
+    dth1 = h**(1/3)*np.pi/2
+    dth = np.concatenate([dth0,dth1])
+    h = np.tile(h,2)
+    Grids = [{'h0' : p[0],
+              'dtheta' : p[1],
+              'Grid': disc_mesh(p[0], p[1])}
+              for p in zip(h,dth)]
+    pickle.dump(Grids, open("unit_discs.p","wb"))
+
+if __name__ == "__main__":
+    main()
