@@ -3,7 +3,7 @@ import numpy as np
 
 from pyellipticfd import ddg
 from pyellipticfd.pointclasses import FDRegularGrid, FDTriMesh
-from setup import disc
+from setup_discs import disc
 
 
 # Test on circular domain

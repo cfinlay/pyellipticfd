@@ -3,7 +3,7 @@ from scipy.spatial.distance import pdist, squareform
 import itertools
 
 from pyellipticfd import ddi
-from setup import disc_mesh
+from setup_discs import disc_mesh
 
 def get_grid():
     # Grid on unit disc

@@ -4,7 +4,7 @@ import warnings
 import itertools
 import numpy as np
 from scipy.sparse import coo_matrix
-from scipy.spatial import ConvexHull
+from scipy.spatial import ConvexHull, Delaunay
 from scipy.spatial.distance import cdist, pdist, squareform
 
 from pyellipticfd import stencils
@@ -30,7 +30,7 @@ def compute_pairs(PointCloud,colinear_tol):
         pairs = ix[:, check].T
 
         i_array = np.full((len(pairs),1),i)
-        return  np.concatenate([ i_array, nb_ix[pairs] ], -1)
+        return  np.column_stack([ i_array, nb_ix[pairs] ])
 
     PointCloud.pairs = np.concatenate([get_pairs(i) for i in PointCloud.interior])
 
@@ -97,7 +97,7 @@ def remove_colinear_neighbours(PointCloud, colinear_tol,prefer="min"):
             keep = np.arange(nv)
 
         i_array = np.full((len(keep),1),i)
-        return  np.concatenate([ i_array, nb_ix[keep,None] ], -1)
+        return  np.column_stack([ i_array, nb_ix[keep] ])
 
     PointCloud.neighbours = np.concatenate(
                                 [strip_neighbours(i) for i in range(PointCloud.num_points)])
@@ -116,7 +116,7 @@ def compute_simplices(PointCloud):
         simplex = nb_ix[hull.simplices]
         i_array = np.full((simplex.shape[0],1),i)
 
-        return np.concatenate( [i_array, simplex], -1)
+        return np.column_stack( [i_array, simplex])
 
     PointCloud.simplices = np.concatenate([get_simplices(i) for i in range(PointCloud.num_points)])
 
@@ -426,6 +426,39 @@ def _reg_normals(Grid):
     Grid.normals = Grid.normals/h[:,None]
 
 
+def _get_grid_neighbours(RegGrid, stencil_radius,interpolation):
+    """Neighbours on integer grid."""
+    dly = Delaunay(RegGrid.points)
+    t = dly.simplices
+    RegGrid.triangulation = t
+
+    # Get edge from list of triangles
+    edges = [np.array([v1,v2]).transpose() for v1,v2 in itertools.permutations(t.transpose(),2)]
+    RegGrid.edges = np.concatenate(edges)
+    RegGrid.neighbours = RegGrid.edges
+
+    # Find all neighbours 'depth' away (in graph distance) from each vertex
+    depth = RegGrid.dim*stencil_radius
+    A = RegGrid.adjacency
+    A_pows = [A]
+    for k in range(1,depth):
+        A_pows.append( A_pows[k-1].dot(A) )
+    S = sum(A_pows)
+    S = S.tocoo(copy=False)
+    RegGrid.neighbours = np.array([S.row, S.col]).T
+
+    if not interpolation or stencil_radius==1:
+        d = lambda u, v : np.max(np.abs(u-v),axis=1)
+        D = d(RegGrid.points[RegGrid._I], RegGrid.points[RegGrid._J])
+        mask = np.logical_and(D <= stencil_radius,
+                              D > 0)
+    elif interpolation:
+        D = RegGrid._VDist
+        mask = np.logical_and.reduce((D <= stencil_radius,
+                                      D > 0,
+                                      D>= stencil_radius-1))
+    RegGrid.neighbours = RegGrid.neighbours[mask,:]
+
 class FDRegularGrid(FDPointCloud):
     """Class for finite differences on rectangular grids."""
 
@@ -498,15 +531,8 @@ class FDRegularGrid(FDPointCloud):
         # Get boundary normals
         _reg_normals(self)
 
-        # Function to compute maximum side length
-        d = lambda u, v : np.max(np.abs(u-v))
-        Dc = pdist(self.points, d)
-        D = squareform(Dc, checks=False)
-
-        Nb =np.logical_and(D <= stencil_radius, D>0)
-
-        self.neighbours = np.concatenate([np.stack([np.full(Nb[i].sum(),i), self.indices[Nb[i]]]).T
-            for i in self.indices])
+        # Compute neighbours
+        _get_grid_neighbours(self, stencil_radius,interpolation)
 
         # Scale points
         scaling = (bounds[1]-bounds[0])/(interior_shape+1)

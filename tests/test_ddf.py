@@ -5,7 +5,7 @@ import numpy as np
 import distmesh as dm
 
 from pyellipticfd import ddf
-from setup import disc
+from setup_discs import disc
 
 
 # Test on circular domain

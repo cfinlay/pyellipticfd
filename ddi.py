@@ -6,6 +6,8 @@ from scipy.sparse import coo_matrix, csr_matrix, diags
 
 from pyellipticfd import _ddutils
 
+eps = 1e-16
+
 def d1(G,v, u=None, jacobian=False, domain="interior"):
     """
     Compute the directional derivative of u, in direction v.
@@ -60,9 +62,9 @@ def d1(G,v, u=None, jacobian=False, domain="interior"):
     Xi = np.linalg.solve(X,v[i])
 
     if domain=="interior":
-        mask_f = (Xi>=0).all(axis=1)
+        mask_f = (Xi>=-eps/G.spatial_resolution).all(axis=1)
     elif domain=="boundary":
-        mask = np.logical_and(Xi>=0, np.reshape(np.in1d(S,G.interior),S.shape))
+        mask = np.logical_and(Xi>=-eps/G.spatial_resolution, np.reshape(np.in1d(S,G.interior),S.shape))
         mask_f = mask.all(axis=1)
 
     _, If = np.unique(I[mask_f],return_index=True)
@@ -261,8 +263,8 @@ def d2(G,v,u=None,jacobian=False):
     # Cone coordinates of direction to take derivative
     Xi = np.linalg.solve(X,v[i])
 
-    mask_f = (Xi>=0).all(axis=1)# Farkas' lemma: in which simplex does the direction lie
-    mask_b = (Xi<=0).all(axis=1)
+    mask_f = (Xi>=-eps/G.spatial_resolution).all(axis=1)# Farkas' lemma: in which simplex does the direction lie
+    mask_b = (Xi<=eps/G.spatial_resolution).all(axis=1)
 
     _, If = np.unique(I[mask_f],return_index=True)
     _, Ib = np.unique(I[mask_b],return_index=True)

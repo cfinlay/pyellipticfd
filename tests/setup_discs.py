@@ -32,8 +32,7 @@ def disc_mesh(h0, angular_resolution):
     dly = Delaunay(p)
     tri = dly.simplices
 
-    Grid = FDTriMesh(p, tri, boundary=boundary,
-                   interior=interior,
+    Grid = FDTriMesh(p, tri,  num_interior=interior.size,
                    angular_resolution=angular_resolution,
                    bdry_normals=p[boundary])
 
@@ -65,19 +64,3 @@ def disc(h):
         plt.show()
 
     return Grid, plot_sol
-
-def main():
-    d = np.power(np.array(2.0),np.arange(-5,-12,-1))
-    h = np.sqrt(d)
-    dth0 = h**(1/3)*np.pi
-    dth1 = h**(1/3)*np.pi/2
-    dth = np.concatenate([dth0,dth1])
-    h = np.tile(h,2)
-    Grids = [{'h0' : p[0],
-              'dtheta' : p[1],
-              'Grid': disc_mesh(p[0], p[1])}
-              for p in zip(h,dth)]
-    pickle.dump(Grids, open("unit_discs.p","wb"))
-
-if __name__ == "__main__":
-    main()

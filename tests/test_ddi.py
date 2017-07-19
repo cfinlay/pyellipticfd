@@ -4,7 +4,7 @@ import pytest
 import numpy as np
 
 from pyellipticfd import ddi
-from setup import disc
+from setup_discs import disc
 
 
 # Test on circular domain
