@@ -6,7 +6,8 @@ from scipy.sparse import coo_matrix, csr_matrix, diags
 
 from pyellipticfd import _ddutils
 
-eps = 1e-16
+# TODO fix this eps hack
+eps = 1e-15
 
 def d1(G,v, u=None, jacobian=False, domain="interior"):
     """

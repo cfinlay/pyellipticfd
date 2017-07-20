@@ -111,7 +111,7 @@ def compute_simplices(PointCloud):
         nb_ix = PointCloud._J[mask]
         vs = Vs[mask]
 
-        hull = ConvexHull(vs)
+        hull = ConvexHull(vs,qhull_options="QJ")
 
         simplex = nb_ix[hull.simplices]
         i_array = np.full((simplex.shape[0],1),i)
@@ -270,11 +270,9 @@ class FDPointCloud(object):
         return h * (-1+ self.Cd/ np.sin(th/2))
 
     @property
-    def min_bdry_radius(self):
-        """Minimum allowable search radius for boundary neighbours."""
-        h = self.bdry_resolution
-        th = self.angular_resolution
-        return  h * (-1+ self.Cd /  np.sin(th/2))
+    def min_dist_to_bdry(self):
+        d1 =  self.Cd * self.bdry_resolution/np.tan(self.angular_resolution/2)
+        return  np.min([self.min_radius, d1 ])
 
     @property
     def maximum_bdry_res(self):
@@ -316,7 +314,6 @@ class FDTriMesh(FDPointCloud):
 
         super().__init__(p, angular_resolution=angular_resolution, **kwargs)
 
-        colinear_tol = 1-np.cos(angular_resolution/4)
 
         self.triangulation = t
 
@@ -358,20 +355,14 @@ class FDTriMesh(FDPointCloud):
 
             self.bdry_resolution = max([circumcircle_radius(ix) for ix in fb])
 
-        if self.dist_to_bdry < self.min_bdry_radius:
+        if self.dist_to_bdry < self.min_dist_to_bdry :
             raise TypeError (
                 ("The interior grid points' minimum distance to the boundary"
                 " ({0.dist_to_bdry:.3g}) "
-                "\nmust be greater than the minimum boundary search radius"
-                "({0.min_bdry_radius:.3g})."
+                "\nmust be greater than "
+                "({0.min_dist_to_bdry:.3g})."
                 "\nTry increasing the angular resolution,"
                 "\nor deleting points close to the boundary.").format(self))
-
-        if self.bdry_resolution > self.maximum_bdry_res:
-            raise TypeError (("The boundary resolution ({0.bdry_resolution:.3g}) is not small enough "
-                "\nto satisfy the desired angular resolution."
-                "\nNeed boundary resolution less than ({0.maximum_bdry_res:.3g})").format(self))
-
 
         # Get edge from list of triangles
         edges = [np.array([v1,v2]).transpose() for v1,v2 in itertools.permutations(t.transpose(),2)]
@@ -395,12 +386,13 @@ class FDTriMesh(FDPointCloud):
         mask = np.logical_and.reduce((D <= self.max_radius,
                                       np.logical_or(D>=self.min_radius,
                                                     np.in1d(self._J, self.bdry)),
-                                      self._I!=self._J))
+                                      D>0))
 
         self.neighbours = self.neighbours[mask,:]
 
         # If neighbours are colinear, remove them
-        remove_colinear_neighbours(self,colinear_tol)
+        colinear_tol = 1-np.cos(angular_resolution/8)
+        remove_colinear_neighbours(self,colinear_tol,prefer="max")
 
         # Create the simplices
         compute_simplices(self)
@@ -428,7 +420,7 @@ def _reg_normals(Grid):
 
 def _get_grid_neighbours(RegGrid, stencil_radius,interpolation):
     """Neighbours on integer grid."""
-    dly = Delaunay(RegGrid.points)
+    dly = Delaunay(RegGrid.points,qhull_options="QJ")
     t = dly.simplices
     RegGrid.triangulation = t
 
@@ -438,7 +430,7 @@ def _get_grid_neighbours(RegGrid, stencil_radius,interpolation):
     RegGrid.neighbours = RegGrid.edges
 
     # Find all neighbours 'depth' away (in graph distance) from each vertex
-    depth = RegGrid.dim*stencil_radius
+    depth = RegGrid.dim*(stencil_radius+interpolation)
     A = RegGrid.adjacency
     A_pows = [A]
     for k in range(1,depth):
@@ -447,16 +439,35 @@ def _get_grid_neighbours(RegGrid, stencil_radius,interpolation):
     S = S.tocoo(copy=False)
     RegGrid.neighbours = np.array([S.row, S.col]).T
 
-    if not interpolation or stencil_radius==1:
-        d = lambda u, v : np.max(np.abs(u-v),axis=1)
+
+    d = lambda u, v : np.max(np.abs(u-v),axis=1)
+    if not interpolation:
         D = d(RegGrid.points[RegGrid._I], RegGrid.points[RegGrid._J])
         mask = np.logical_and(D <= stencil_radius,
                               D > 0)
-    elif interpolation:
-        D = RegGrid._VDist
-        mask = np.logical_and.reduce((D <= stencil_radius,
-                                      D > 0,
-                                      D>= stencil_radius-1))
+    else:
+        D0 = RegGrid._VDist
+        D1 = d(RegGrid.points[RegGrid._I], RegGrid.points[RegGrid._J])
+
+        Jb = np.in1d(RegGrid._J, RegGrid.bdry)
+        Ji = np.in1d(RegGrid._J, RegGrid.interior)
+        Ii = np.in1d(RegGrid._I, RegGrid.interior)
+        Ib = np.in1d(RegGrid._I, RegGrid.bdry)
+
+        # If the central point and it's neighbours are all interior,
+        # choose those points from the Midpoint Circle Algorithm
+        mask0 = np.logical_and.reduce((Ji, D0 < stencil_radius+1,
+                              D0 > stencil_radius-1))
+
+        # If the neighbour is on the boundary, but the point is interiorx
+        # allow points whos max{x,y} distance is less than the stencil radius
+        mask1 = np.logical_and.reduce((Ii, Jb, D1 <= stencil_radius, D0<=stencil_radius+1, D0>0))
+
+        # If the both neighbours and the point are boundary, choose based
+        # on max{x,y} distancea only
+        mask2 = np.logical_and.reduce((Ib, Jb, D1 <= stencil_radius, D0>0))
+
+        mask = np.logical_or(mask0,mask1)
     RegGrid.neighbours = RegGrid.neighbours[mask,:]
 
 class FDRegularGrid(FDPointCloud):
@@ -538,6 +549,7 @@ class FDRegularGrid(FDPointCloud):
         scaling = (bounds[1]-bounds[0])/(interior_shape+1)
         self.points = self.points*scaling + bounds[0]
 
+
         # angular resolution
         stcl = stcl*scaling
         stcl = stcl[np.logical_not(stcl==0).all(axis=1)]
@@ -565,7 +577,7 @@ class FDRegularGrid(FDPointCloud):
             compute_pairs(self,colinear_tol)
             self.simplices = None
         else:
-            colinear_tol = 1-np.cos(self.angular_resolution/4)
+            colinear_tol = 1-np.cos(self.angular_resolution/2)
             remove_colinear_neighbours(self,colinear_tol,prefer="max")
             compute_simplices(self)
             self.pairs = None
