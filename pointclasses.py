@@ -500,12 +500,12 @@ class FDRegularGrid(FDPointCloud):
         #TODO redifine min_search, max_search etc
 
         self._interp = interpolation
-        self.scaling = (bounds[1]-bounds[0])/(interior_shape+1)
         self.stencil_radius = stencil_radius
 
         dim = len(interior_shape)
         interior_shape = np.array(interior_shape)
         bounds = np.array(bounds)
+        self.scaling = (bounds[1]-bounds[0])/(interior_shape+1)
 
         rect = bounds/(interior_shape+1)
         self.spatial_resolution = np.linalg.norm(rect)/2

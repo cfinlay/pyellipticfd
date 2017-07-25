@@ -271,7 +271,7 @@ def d2(G,v,u=None,jacobian=False):
     _, Ib = np.unique(I[mask_b],return_index=True)
 
     Sf = S[mask_f][If]
-    Sb = S[mask_b][If]
+    Sb = S[mask_b][Ib]
 
     Xif = Xi[mask_f][If]
     Xib = -Xi[mask_b][Ib]
