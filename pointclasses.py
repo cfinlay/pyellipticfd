@@ -441,7 +441,7 @@ def _get_grid_neighbours(RegGrid, stencil_radius,interpolation):
 
 
     d = lambda u, v : np.max(np.abs(u-v),axis=1)
-    if not interpolation:
+    if not interpolation or stencil_radius==1:
         D = d(RegGrid.points[RegGrid._I], RegGrid.points[RegGrid._J])
         mask = np.logical_and(D <= stencil_radius,
                               D > 0)
@@ -467,7 +467,7 @@ def _get_grid_neighbours(RegGrid, stencil_radius,interpolation):
         # on max{x,y} distancea only
         mask2 = np.logical_and.reduce((Ib, Jb, D1 <= stencil_radius, D0>0))
 
-        mask = np.logical_or(mask0,mask1)
+        mask = np.logical_or(mask0,mask1,mask2)
     RegGrid.neighbours = RegGrid.neighbours[mask,:]
 
 class FDRegularGrid(FDPointCloud):
@@ -499,6 +499,8 @@ class FDRegularGrid(FDPointCloud):
         #TODO need minimum search radius to guarantee converence for interpolation method...
         #TODO redifine min_search, max_search etc
 
+        self._interp = interpolation
+        self.scaling = (bounds[1]-bounds[0])/(interior_shape+1)
         self.stencil_radius = stencil_radius
 
         dim = len(interior_shape)
@@ -516,7 +518,6 @@ class FDRegularGrid(FDPointCloud):
         # define appropriate stencil for calculating neighbours
         stcl = stencils.create(stencil_radius,dim)
         stcl_l1 = stcl/np.max(np.abs(stcl),axis=1)[:,None] # normalize by maximum side length
-        stcl_l1 = np.concatenate([[[0,0]],stcl_l1])
 
 
         # Compute neighbours, for boundary
@@ -533,7 +534,8 @@ class FDRegularGrid(FDPointCloud):
         mask = mask.any(axis=0)
         X = X[mask]
 
-        Xb = np.vstack({tuple(row) for row in X})
+        h  = (bounds[1]-bounds[0])/(interior_shape+1)
+        Xb = (np.unique(h*X+bounds[0],axis=0)-bounds[0])/h
 
         self.points = np.concatenate([Xint,Xb])
         self.num_interior = Xint.shape[0]
@@ -546,12 +548,12 @@ class FDRegularGrid(FDPointCloud):
         _get_grid_neighbours(self, stencil_radius,interpolation)
 
         # Scale points
-        scaling = (bounds[1]-bounds[0])/(interior_shape+1)
-        self.points = self.points*scaling + bounds[0]
+        self.points = self.points*self.scaling + bounds[0]
+
 
 
         # angular resolution
-        stcl = stcl*scaling
+        stcl = stcl*self.scaling
         stcl = stcl[np.logical_not(stcl==0).all(axis=1)]
         def dtheta(i):
             e = np.zeros(dim)
@@ -564,11 +566,11 @@ class FDRegularGrid(FDPointCloud):
         self.angular_resolution = max([dtheta(i) for i in range(dim)])
 
         # distance to boundary
-        self.dist_to_bdry = scaling.min()
+        self.dist_to_bdry = self.scaling.min()
 
         # boundary resolution
         b_rect = np.full(dim,1/stencil_radius)
-        b_rect = b_rect*scaling
+        b_rect = b_rect*self.scaling
         self.bdry_resolution = max([np.linalg.norm(v)/2 for v in itertools.combinations(b_rect,dim-1)])
 
         if not interpolation:
@@ -584,3 +586,37 @@ class FDRegularGrid(FDPointCloud):
 
         self._d1cache = None
         self._d2cache = None
+
+    @property
+    def max_radius(self):
+        """Maximum search radius for neighbours."""
+        if self._interp:
+            h = self.scaling
+            M = (h * (self.stencil_radius+1)).max()
+        else:
+            M = self.spatial_resolution*self.stencil_radius
+
+        return M
+
+
+
+    @property
+    def min_radius(self):
+        """Minimum search radius for neighbours."""
+        h = self.scaling
+        if self._interp:
+            M = (h * (self.stencil_radius-1)).min()
+        else:
+            M = 0
+
+        return np.max([M, h.min()])
+
+    @property
+    def maximum_bdry_res(self):
+        """Maximum allowable boundary resolution, given angular resolution."""
+        return self.bdry_resolution
+
+    @property
+    def min_interior_nb_dist(self):
+        """Minimum interior distance between neighbours."""
+        return (self._VDist[np.in1d(self._I, self.interior)]).min()

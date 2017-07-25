@@ -74,7 +74,7 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
             return U, diff, i, time.time()-t0
 
 def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
-        euler_ratio=1/9, max_euler_iters=None, scipysolver = "spsolve",
+        euler_ratio=1, max_euler_iters=None, scipysolver = "spsolve",
         plotter=None):
     """
     Use semismooth Newton's method to find the steady state F[U]=0.
@@ -96,7 +96,7 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
     euler_ratio : scalar
         In between Newton steps, the method perform Euler steps. The scalar
         euler_ratio gives the ratio of the time spent on Euler over the time
-        spent doing a Newton step.  Defaults to 1/9, ie 10% of CPU time is
+        spent doing a Newton step.  Defaults to 1, ie 50% of CPU time is
         spent on Euler steps.
     max_euler_iters : scalar
         Maximum allowable Euler iterations. Defaults to the number of grid points.
