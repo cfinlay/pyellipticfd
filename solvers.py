@@ -8,7 +8,7 @@ from scipy.sparse.linalg import spsolve, lsmr
 
 
 def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
-            timeout=None,zeromean=False,plotter=None):
+            timeout=None,zeromean=False,zeromax=False,plotter=None):
     """
     Solve F[U] = 0 by iterating Euler steps until the
     stopping criteria |U^n+1 - U^n| < solution_tol.
@@ -28,6 +28,9 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
         If the operator is only unique up to a constant, then setting zeromean
         to True tells the solver to choose the solution with zero mean, where
         each point is weighted equally.
+    zeromean : boolean
+        If the operator is only unique up to a constant, then setting zeromax
+        to True tells the solver to choose the solution with zero max.
     plotter : function
         If provided, this function plots the solution every iteration.
 
@@ -59,8 +62,12 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
                 plotter(U_new)
 
         diff = np.amax(np.absolute(U - U_new))
+        if zeromean and zeromax:
+            ValueError('Only one of zeromean and zeromax may be True')
         if zeromean:
             U = U_new - np.mean(U_new)
+        elif zeromax:
+            U = U_new - np.max(U_new)
         else:
             U = U_new
 
@@ -144,6 +151,8 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
         U_new = U + np.reshape(d,U.shape)
         diff = np.amax(np.absolute(U - U_new))
         U = U_new
+        if scipysolver=='lsmr':
+            U_new = U_new - U_new.max()
 
         if plotter:
             with warnings.catch_warnings():
@@ -159,12 +168,15 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
             timeout = None
 
         if (max_euler_iters is not 0) and (timeout is not None):
+            zeromax=False
+            if scipysolver=='lsmr':
+                zeromax=True
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 U, diff, _, _ = euler(U, G,
                                     solution_tol=solution_tol,
                                     max_iters=max_euler_iters,
-                                    timeout=timeout)
+                                    timeout=timeout,zeromax=zeromax)
 
         if diff < solution_tol:
             return U, diff, i, time.time()-t0
