@@ -3,7 +3,7 @@ import numpy as np
 import time
 import scipy.sparse as sparse
 
-from pyellipticfd import ddi, ddg, solvers
+from pyellipticfd import ddi, ddg, ddf, solvers
 
 def operator(Grid,W,jacobian=True,fdmethod='interpolate'):
     """
@@ -36,6 +36,8 @@ def operator(Grid,W,jacobian=True,fdmethod='interpolate'):
         op = ddg.d2eigs(Grid,W,jacobian=jacobian,control=False)
     elif fdmethod=='interpolate':
         op = ddi.d2eigs(Grid,W,jacobian=jacobian,control=False)
+    elif fdmethod=='froese':
+        op = ddf.d2eigs(Grid,W,jacobian=jacobian,control=False)
 
     (lmin, Mmin, _), (lmax, Mmax, _) = op
 
@@ -129,16 +131,17 @@ def solve(Grid,f,dirichlet=None,neumann=None,
     if h is not None:
         if fdmethod=='interpolate':
             d1n = ddi.d1(Grid, -Grid.bdry_normals, domain='boundary')[1]
-        elif fdmethod=='grid':
+        elif fdmethod=='grid' or fdmethod=='froese':
             d1n = ddg.d1(Grid, -Grid.bdry_normals, domain='boundary')[1]
 
     # Initial guess
     if U0 is None:
-        U0 = np.zeros(Grid.num_points)
         if g is not None:
+            U0 = np.zeros(Grid.num_points)
             U0[Grid.bdry] = g
         else:
-            U0[Grid.bdry] = 1.0
+            U0 = np.full(Grid.num_points,-1.0)
+            U0[Grid.bdry] = 0.0
 
     # Forcing function over the whole domain
     F = np.zeros(Grid.num_points)
@@ -180,7 +183,6 @@ def solve(Grid,f,dirichlet=None,neumann=None,
             dt = np.min([dt, dt_bdry])
 
 
-
         return (GW - F), Jac, dt
 
 
@@ -188,10 +190,11 @@ def solve(Grid,f,dirichlet=None,neumann=None,
         def G_(W):
             op = G(W,jacobian=False)
             return op[0], op[2]
+        max_iters = 1/Grid.min_radius**2 * 50
 
         if h is None:
             return solvers.euler(U0, G_, **kwargs)
         else:
-            return solvers.euler(U0, G_, zeromean=True,**kwargs)
+            return solvers.euler(U0, G_, zeromax=True,**kwargs)
     elif solver=="newton":
         return solvers.newton(U0, G, scipysolver='lsmr',euler_ratio=1,**kwargs)

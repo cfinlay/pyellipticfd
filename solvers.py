@@ -52,33 +52,37 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
         timeout = time.time()+timeout
 
     for i in itertools.count(1):
-        FU, dt = operator(U)
+        try:
+            FU, dt = operator(U)
 
-        U_new = U - dt * FU
+            U_new = U - dt * FU
 
-        if plotter:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                plotter(U_new)
+            if plotter:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    plotter(U_new)
 
-        diff = np.amax(np.absolute(U - U_new))
-        if zeromean and zeromax:
-            ValueError('Only one of zeromean and zeromax may be True')
-        if zeromean:
-            U = U_new - np.mean(U_new)
-        elif zeromax:
-            U = U_new - np.max(U_new)
-        else:
-            U = U_new
+            diff = np.amax(np.absolute(U - U_new))
+            if zeromean and zeromax:
+                ValueError('Only one of zeromean and zeromax may be True')
+            if zeromean:
+                U = U_new - np.mean(U_new)
+            elif zeromax:
+                U = U_new - np.max(U_new)
+            else:
+                U = U_new
 
-        if diff < solution_tol:
+            if diff < solution_tol:
+                return U, diff, i, time.time()-t0
+            elif i >= max_iters:
+                warnings.warn("Maximum iterations reached")
+                return U, diff, i, time.time()-t0
+            elif (not timeout is None) and (time.time() > timeout):
+                warnings.warn("Maximum computation time reached")
+                return U, diff, i, time.time()-t0
+        except KeyboardInterrupt:
             return U, diff, i, time.time()-t0
-        elif i >= max_iters:
-            warnings.warn("Maximum iterations reached")
-            return U, diff, i, time.time()-t0
-        elif (not timeout is None) and (time.time() > timeout):
-            warnings.warn("Maximum computation time reached")
-            return U, diff, i, time.time()-t0
+
 
 def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
         euler_ratio=1, max_euler_iters=None, scipysolver = "spsolve",
@@ -137,49 +141,52 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
         max_euler_iters=U.size
 
     for i in itertools.count(1):
-        if euler_ratio is not None:
-            tstart = time.time()
+        try:
+            if euler_ratio is not None:
+                tstart = time.time()
 
-        Fu, Grad, _ = operator(U,jacobian=True)
+            Fu, Grad, _ = operator(U,jacobian=True)
 
-        if scipysolver == 'spsolve':
-            d = spsolve(Grad, -Fu)
-        elif scipysolver == 'lsmr':
-            d = lsmr(Grad, -Fu)[0]
+            if scipysolver == 'spsolve':
+                d = spsolve(Grad, -Fu)
+            elif scipysolver == 'lsmr':
+                d = lsmr(Grad, -Fu)[0]
 
 
-        U_new = U + np.reshape(d,U.shape)
-        diff = np.amax(np.absolute(U - U_new))
-        U = U_new
-        if scipysolver=='lsmr':
-            U_new = U_new - U_new.max()
-
-        if plotter:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                plotter(U_new)
-
-        if euler_ratio ==0:
-            timeout = None
-        elif euler_ratio is not None:
-            NewtonTime = time.time()-tstart
-            timeout = euler_ratio*NewtonTime
-        else:
-            timeout = None
-
-        if (max_euler_iters is not 0) and (timeout is not None):
-            zeromax=False
+            U_new = U + np.reshape(d,U.shape)
+            diff = np.amax(np.absolute(U - U_new))
+            U = U_new
             if scipysolver=='lsmr':
-                zeromax=True
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                U, diff, _, _ = euler(U, G,
-                                    solution_tol=solution_tol,
-                                    max_iters=max_euler_iters,
-                                    timeout=timeout,zeromax=zeromax)
+                U_new = U_new - U_new.max()
 
-        if diff < solution_tol:
-            return U, diff, i, time.time()-t0
-        elif i+1 >= max_iters:
-            warnings.warn("Maximum iterations reached")
+            if plotter:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    plotter(U_new)
+
+            if euler_ratio ==0:
+                timeout = None
+            elif euler_ratio is not None:
+                NewtonTime = time.time()-tstart
+                timeout = euler_ratio*NewtonTime
+            else:
+                timeout = None
+
+            if (max_euler_iters is not 0) and (timeout is not None):
+                zeromax=False
+                if scipysolver=='lsmr':
+                    zeromax=True
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    U, diff, _, _ = euler(U, G,
+                                        solution_tol=solution_tol,
+                                        max_iters=max_euler_iters,
+                                        timeout=timeout,zeromax=zeromax)
+
+            if diff < solution_tol:
+                return U, diff, i, time.time()-t0
+            elif i+1 >= max_iters:
+                warnings.warn("Maximum iterations reached")
+                return U, diff, i, time.time()-t0
+        except KeyboardInterrupt:
             return U, diff, i, time.time()-t0
