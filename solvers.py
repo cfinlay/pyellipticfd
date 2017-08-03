@@ -3,8 +3,10 @@
 import numpy as np
 import itertools
 import warnings
+from warnings import warn
 import time
 from scipy.sparse.linalg import spsolve, lsmr
+from scipy.sparse.linalg.dsolve.linsolve import MatrixRankWarning
 
 
 def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
@@ -75,18 +77,20 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
             if diff < solution_tol:
                 return U, diff, i, time.time()-t0
             elif i >= max_iters:
-                warnings.warn("Maximum iterations reached")
+                warn("Maximum iterations reached")
                 return U, diff, i, time.time()-t0
             elif (not timeout is None) and (time.time() > timeout):
-                warnings.warn("Maximum computation time reached")
+                warn("Maximum computation time reached")
                 return U, diff, i, time.time()-t0
         except KeyboardInterrupt:
             return U, diff, i, time.time()-t0
 
+class NewtonDecreaseWarning(UserWarning):
+    pass
 
 def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
-        euler_ratio=1, max_euler_iters=None, scipysolver = "spsolve",
-        plotter=None):
+        euler_ratio=1,plotter=None):#, max_euler_iters=None, scipysolver = "spsolve",
+        #plotter=None):
     """
     Use semismooth Newton's method to find the steady state F[U]=0.
 
@@ -105,15 +109,9 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
     max_iters : scalar
         Maximum number of iterations.
     euler_ratio : scalar
-        In between Newton steps, the method perform Euler steps. The scalar
-        euler_ratio gives the ratio of the time spent on Euler over the time
-        spent doing a Newton step.  Defaults to 1, ie 50% of CPU time is
-        spent on Euler steps.
-    max_euler_iters : scalar
-        Maximum allowable Euler iterations. Defaults to the number of grid points.
-    scipysolver : string
-        The scipy solver to use. Either 'spsolve' or 'lsmr'.
-        Use 'lsmr' if the Jacobian has deficient rank.
+        If a Newton step fails, the algorithm switches to performing Euler
+        steps.  The scalar euler_ratio gives the proportion of time spent on
+        Euler steps relative to one Newton step. Defaults to 1.
     plotter : function
         If provided, this function plots the solution every iteration.
 
@@ -131,62 +129,69 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
     """
     t0 = time.time()
 
+    # Safety checks
+    if euler_ratio <=0:
+        raise ValueError('euler_ratio must be positive')
+
+    newtontime = 1.0 # Default time to perform newton step, in case Jacobian
+                     # is singular at U0
+
+    # Merit function
+    def Theta(G):
+        return 0.5* G.dot(G)
+
+    # Sufficient decrease parameters
+    rho, p = 0.5, 2
+
     # Operator for the Euler step
     def G(U):
         tup = operator(U,jacobian=False)
         return (tup[0], tup[2])
 
     # Set max number of Euler steps if not given
-    if max_euler_iters is None:
-        max_euler_iters=U.size
+    max_euler_iters=10*U.size
 
     for i in itertools.count(1):
-        try:
-            if euler_ratio is not None:
+
+        try: # TODO simplify warning and exception handling
+            with warnings.catch_warnings():
+                warnings.simplefilter('error')
+
                 tstart = time.time()
-
-            Fu, Grad, _ = operator(U,jacobian=True)
-
-            if scipysolver == 'spsolve':
-                d = spsolve(Grad, -Fu)
-            elif scipysolver == 'lsmr':
-                d = lsmr(Grad, -Fu)[0]
-
-
-            U_new = U + np.reshape(d,U.shape)
-            diff = np.amax(np.absolute(U - U_new))
-            U = U_new
-            if scipysolver=='lsmr':
-                U_new = U_new - U_new.max()
-
-            if plotter:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    plotter(U_new)
-
-            if euler_ratio ==0:
-                timeout = None
-            elif euler_ratio is not None:
+                Gu, Jac, _ = operator(U,jacobian=True)
+                d = spsolve(Jac, -Gu)
                 NewtonTime = time.time()-tstart
-                timeout = euler_ratio*NewtonTime
-            else:
-                timeout = None
 
-            if (max_euler_iters is not 0) and (timeout is not None):
-                zeromax=False
-                if scipysolver=='lsmr':
-                    zeromax=True
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    U, diff, _, _ = euler(U, G,
-                                        solution_tol=solution_tol,
-                                        max_iters=max_euler_iters,
-                                        timeout=timeout,zeromax=zeromax)
+                U_new = U + d
 
-            if diff < solution_tol:
-                return U, diff, i, time.time()-t0
-            elif i+1 >= max_iters:
-                warnings.warn("Maximum iterations reached")
-                return U, diff, i, time.time()-t0
-        except KeyboardInterrupt:
+                # Check for sufficient decrease
+                gradTheta = Jac.transpose().dot(Gu)
+                normp = np.linalg.norm(d)**p
+
+                if gradTheta.dot(d) > - rho * normp:
+                    warn('Insufficient decrease in Newton step',
+                         NewtonDecreaseWarning)
+
+                diff = np.amax(np.absolute(U - U_new))
+                U = U_new
+        except (MatrixRankWarning,NewtonDecreaseWarning) as e:
+            print('At iteratate',i,':',e,'; switching to Euler')
+            timeout = euler_ratio*NewtonTime
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                U, diff, _, _ = euler(U, G,
+                                    solution_tol=solution_tol,
+                                    max_iters=max_euler_iters)
+
+        if plotter:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                plotter(U)
+
+
+        if diff < solution_tol:
+            return U, diff, i, time.time()-t0
+        elif i+1 >= max_iters:
+            warn("Maximum iterations reached")
             return U, diff, i, time.time()-t0
