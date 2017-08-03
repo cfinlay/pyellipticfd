@@ -197,4 +197,4 @@ def solve(Grid,f,dirichlet=None,neumann=None,
         else:
             return solvers.euler(U0, G_, zeromax=True,**kwargs)
     elif solver=="newton":
-        return solvers.newton(U0, G, scipysolver='lsmr',euler_ratio=1,**kwargs)
+        return solvers.newton(U0, G, euler_ratio=1,**kwargs)

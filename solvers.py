@@ -7,6 +7,7 @@ from warnings import warn
 import time
 from scipy.sparse.linalg import spsolve, lsmr
 from scipy.sparse.linalg.dsolve.linsolve import MatrixRankWarning
+from scipy import sparse
 
 
 def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
@@ -141,7 +142,8 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
         return 0.5* G.dot(G)
 
     # Sufficient decrease parameters
-    rho, p = 0.5, 2
+    #rho, p = 0.5, 2
+    gamma = 0.95
 
     # Operator for the Euler step
     def G(U):
@@ -159,18 +161,34 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
 
                 tstart = time.time()
                 Gu, Jac, _ = operator(U,jacobian=True)
-                d = spsolve(Jac, -Gu)
+
+                # Newton approximation matrix H
+                Gu_nrm = np.linalg.norm(Gu)
+                E = sparse.diags(np.full(Gu.size, Gu_nrm),format='csr')
+                H = Jac.transpose().dot(Jac) + E
+
+                # grad of Theta, the merit function
+                gradTheta = Jac.transpose().dot(Gu)
+
+                d = spsolve(H, -gradTheta)
+
                 NewtonTime = time.time()-tstart
 
-                U_new = U + d
+                Th = Theta(Gu)
+                sigma = gradTheta.dot(d)
+                for k in itertools.count():
+                    U_test = U + 2**(-k)*d
 
-                # Check for sufficient decrease
-                gradTheta = Jac.transpose().dot(Gu)
-                normp = np.linalg.norm(d)**p
+                    Gu_test = G(U_test)[0]
+                    Th_test = Theta(Gu_test)
 
-                if gradTheta.dot(d) > - rho * normp:
-                    warn('Insufficient decrease in Newton step',
-                         NewtonDecreaseWarning)
+                    if Th_test <= Th + gamma * 2**(-k) * sigma:
+                        U_new = U_test
+                        break
+
+                    if k > 3:
+                        warn('Insufficient decrease in Newton step',
+                             NewtonDecreaseWarning)
 
                 diff = np.amax(np.absolute(U - U_new))
                 U = U_new
