@@ -9,7 +9,7 @@ import matplotlib.ticker as ticker
 from pyellipticfd import monge_ampere
 from pyellipticfd.tests import setup_discs
 
-Grid = setup_discs.disc_mesh(0.08,np.pi/3)
+Grid = setup_discs.disc_mesh(0.075,np.pi/4)
 
 def Utrue(x):
     X, Y = x.T
@@ -44,6 +44,8 @@ def plot_sol(U):
     plt.draw()
     plt.pause(0.001)
 
-Un, diff, iters, t = monge_ampere.solve(Grid,forcing,
-                        neumann=lambda x: neumann(x,Grid.bdry_normals),
-                        solver="newton",solution_tol=1e-3,plotter=plot_sol)
+Uma, diff, iters, t = monge_ampere.solve(Grid,forcing,
+                        dirichlet = Utrue,
+                        solver="newton",solution_tol=1e-10,plotter=plot_sol)
+
+Err = np.abs(Uma-Utrue(Grid.points)).max()

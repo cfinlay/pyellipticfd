@@ -5,9 +5,8 @@ import itertools
 import warnings
 from warnings import warn
 import time
-from scipy.sparse.linalg import spsolve, lsmr
+from scipy.sparse.linalg import spsolve, lsmr, lgmres
 from scipy.sparse.linalg.dsolve.linsolve import MatrixRankWarning
-from scipy import sparse
 
 
 def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
@@ -142,8 +141,7 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
         return 0.5* G.dot(G)
 
     # Sufficient decrease parameters
-    #rho, p = 0.5, 2
-    gamma = 0.95
+    rho, p = 0.5, 2
 
     # Operator for the Euler step
     def G(U):
@@ -153,7 +151,7 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
     # Set max number of Euler steps if not given
     max_euler_iters=10*U.size
 
-    for i in itertools.count(1):
+    for i in itertools.count(0):
 
         try: # TODO simplify warning and exception handling
             with warnings.catch_warnings():
@@ -161,40 +159,24 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
 
                 tstart = time.time()
                 Gu, Jac, _ = operator(U,jacobian=True)
+                d = lgmres(Jac, -Gu)[0]
+                newtontime = time.time()-tstart
 
-                # Newton approximation matrix H
-                Gu_nrm = np.linalg.norm(Gu)
-                E = sparse.diags(np.full(Gu.size, Gu_nrm),format='csr')
-                H = Jac.transpose().dot(Jac) + E
+                U_new = U + d
 
-                # grad of Theta, the merit function
+                # Check for sufficient decrease
                 gradTheta = Jac.transpose().dot(Gu)
+                normp = np.linalg.norm(d)**p
 
-                d = spsolve(H, -gradTheta)
-
-                NewtonTime = time.time()-tstart
-
-                Th = Theta(Gu)
-                sigma = gradTheta.dot(d)
-                for k in itertools.count():
-                    U_test = U + 2**(-k)*d
-
-                    Gu_test = G(U_test)[0]
-                    Th_test = Theta(Gu_test)
-
-                    if Th_test <= Th + gamma * 2**(-k) * sigma:
-                        U_new = U_test
-                        break
-
-                    if k > 3:
-                        warn('Insufficient decrease in Newton step',
-                             NewtonDecreaseWarning)
+                if gradTheta.dot(d) > - rho * normp:
+                    warn('Insufficient decrease in Newton step',
+                         NewtonDecreaseWarning)
 
                 diff = np.amax(np.absolute(U - U_new))
                 U = U_new
         except (MatrixRankWarning,NewtonDecreaseWarning) as e:
             print('At iteratate',i,':',e,'; switching to Euler')
-            timeout = euler_ratio*NewtonTime
+            timeout = euler_ratio*newtontime
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -209,7 +191,7 @@ def newton(U,operator,solution_tol=1e-4,max_iters=1e2,
 
 
         if diff < solution_tol:
-            return U, diff, i, time.time()-t0
-        elif i+1 >= max_iters:
+            return U, diff, i+1, time.time()-t0
+        elif i >= max_iters:
             warn("Maximum iterations reached")
-            return U, diff, i, time.time()-t0
+            return U, diff, i+1, time.time()-t0

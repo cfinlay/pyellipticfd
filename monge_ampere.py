@@ -136,12 +136,12 @@ def solve(Grid,f,dirichlet=None,neumann=None,
 
     # Initial guess
     if U0 is None:
+        U0 = np.einsum('ij,ij->i',Grid.points,Grid.points)
         if g is not None:
-            U0 = np.zeros(Grid.num_points)
+            U0 = U0-U0.max()+g.min()
             U0[Grid.bdry] = g
         else:
-            U0 = np.full(Grid.num_points,-1.0)
-            U0[Grid.bdry] = 0.0
+            U0 = U0-U0.max()
 
     # Forcing function over the whole domain
     F = np.zeros(Grid.num_points)
