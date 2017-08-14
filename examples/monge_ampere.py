@@ -47,5 +47,9 @@ def plot_sol(U):
 Uma, diff, iters, t = monge_ampere.solve(Grid,forcing,
                         dirichlet = Utrue,
                         solver="newton",solution_tol=1e-10,plotter=plot_sol)
+#Uma, diff, iters, t = monge_ampere.solve(Grid,forcing,
+#                        neumann = lambda x : neumann(x, Grid.bdry_normals),
+#                        solver="newton",solution_tol=1e-10,plotter=plot_sol)
+#Uma = Uma - Uma.max()
 
 Err = np.abs(Uma-Utrue(Grid.points)).max()

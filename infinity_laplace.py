@@ -186,8 +186,4 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
             return solvers.euler(U0, G_, **kwargs)
 
     elif solver=="newton":
-        if h is not None:
-            # With Neumann BC, choose the solution with smallest L2 norm
-            return solvers.newton(U0, G, scipysolver='lsmr',**kwargs)
-        else:
-            return solvers.newton(U0, G, **kwargs)
+        return solvers.NewtonEulerLS(U0, G, **kwargs)

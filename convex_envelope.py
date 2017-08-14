@@ -120,4 +120,4 @@ def solve(Grid,g,U0=None,fdmethod='interpolate', solver="newton",**kwargs):
             op = operator(Grid,W,g,jacobian=jacobian,fdmethod=fdmethod)
             return op[0], op[1], dt
 
-        return solvers.newton(U0, G, **kwargs)
+        return solvers.NewtonEulerLS(U0, G, **kwargs)
