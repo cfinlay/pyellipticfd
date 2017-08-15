@@ -15,7 +15,6 @@ def Utrue(x):
     X, Y = x.T
     norm2 = X**2 + Y**2
     val = np.exp(norm2/2)
-    val = val - val.max()
     return val
 
 def neumann(x,n):
@@ -29,28 +28,29 @@ def forcing(x):
     norm2 = X**2 + Y**2
     return -(1+norm2)*np.exp(norm2/2)
 
-# Setup a plotter
-tri = Grid.triangulation
-x,y = Grid.points.T
-triang = mtri.Triangulation(x,y,tri)
 
-plt.ion()
-fig = plt.figure()
-ax = fig.add_subplot(111,projection='3d')
+## Setup a plotter
+#tri = Grid.triangulation
+#x,y = Grid.points.T
+#triang = mtri.Triangulation(x,y,tri)
+#
+#plt.ion()
+#fig = plt.figure()
+#ax = fig.add_subplot(111,projection='3d')
+#
+#def plot_sol(U):
+#    ax.cla()
+#    ax.plot_trisurf(triang,U,cmap = plt.cm.CMRmap)
+#    plt.draw()
+#    plt.pause(0.001)
+def main():
 
-def plot_sol(U):
-    ax.cla()
-    ax.plot_trisurf(triang,U,cmap = plt.cm.CMRmap)
-    plt.draw()
-    plt.pause(0.001)
+    Uma, diff, iters, t = monge_ampere.solve(Grid,forcing,
+                            dirichlet = Utrue,verbose=True,
+                            solver="newton",solution_tol=1e-8,operator_tol=1e-8)
 
-Uma, diff, iters, t = monge_ampere.solve(Grid,forcing,
-                        dirichlet = Utrue,
-                        solver="newton",solution_tol=1e-8,operator_tol=1e-8,
-                        force_euler=True,plotter=plot_sol)
-#Uma, diff, iters, t = monge_ampere.solve(Grid,forcing,
-#                        neumann = lambda x : neumann(x, Grid.bdry_normals),
-#                        solver="newton",solution_tol=1e-10,plotter=plot_sol)
-#Uma = Uma - Uma.max()
+    Err = np.abs(Uma-Utrue(Grid.points)).max()
+    print('Error: %1.4g, Time: %0.2g, iters: %3d'%(Err,t, iters))
 
-Err = np.abs(Uma-Utrue(Grid.points)).max()
+if __name__=="__main__":
+    main()

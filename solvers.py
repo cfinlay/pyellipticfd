@@ -6,11 +6,11 @@ import warnings
 from warnings import warn
 import time
 from scipy.sparse import diags
-from scipy.sparse.linalg import lgmres, spsolve
+from scipy.sparse.linalg import  bicgstab
 from scipy.sparse.linalg.dsolve.linsolve import MatrixRankWarning
 
 
-def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
+def euler(U,operator,solution_tol=1e-6,operator_tol=1e-6,max_iters=1e5,
             timeout=None,zeromean=False,zeromax=False,plotter=None):
     """
     Solve F[U] = 0 by iterating Euler steps until the
@@ -24,8 +24,9 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
         An function returning a tuple : first, the operator value F(U), including
         points on the boundary; and second, the CFL condition.
     solution_tol : scalar
-        Stopping criterion for the difference between solution iterates, in the
-        infinity norm.
+        Stopping criterion of the solution, in the infinity norm.
+    operator_tol : scalar
+        Stopping critera of the residual, ie the infinity norm.
     max_iters : scalar
         Maximum number of iterations.
     timeout : scalar
@@ -78,7 +79,7 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
             else:
                 U = U_new
 
-            if diff < solution_tol:
+            if (diff < solution_tol) and np.abs(FU).max() < operator_tol:
                 return U, diff, i, time.time()-t0
             elif i >= max_iters:
                 warn("Maximum iterations reached")
@@ -92,7 +93,7 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
 class NewtonDecreaseWarning(UserWarning):
     pass
 
-def NewtonEulerLS(U,operator,solution_tol=1e-4,operator_tol = 1e-4, max_iters=1e2,
+def NewtonEulerLS(U,operator,solution_tol=1e-6,operator_tol = 1e-6, max_iters=1e2,
         euler_ratio=1,plotter=None, max_euler_iters=None,
         verbose = False, force_euler=False):
     """
@@ -111,9 +112,9 @@ def NewtonEulerLS(U,operator,solution_tol=1e-4,operator_tol = 1e-4, max_iters=1e
         'jacobian', which specifies whether to calculate the Jacobian matrix.
         If False then the Jacobian must be set to None.
     solution_tol : scalar
-        Stopping criterion, in the infinity norm.
+        Stopping criterion of the solution, in the infinity norm.
     operator_tol : scalar
-        Stopping critera of the operator value, in the infinity norm.
+        Stopping critera of the residual, ie the infinity norm.
     max_iters : scalar
         Maximum number of iterations.
     euler_ratio : scalar
@@ -173,14 +174,15 @@ def NewtonEulerLS(U,operator,solution_tol=1e-4,operator_tol = 1e-4, max_iters=1e
                 tstart = time.time()
                 Gu, Jac, _ = operator(U,jacobian=True)
 
-                d, info = lgmres(Jac, -Gu)
-                #d = spsolve(Jac, -Gu)
+                P = diags(1/Jac.diagonal(),format='csr') # Preconditioner
+
+                d, info = bicgstab(Jac, -Gu, M=P, tol=np.min([operator_tol,solution_tol]))
 
                 newtontime = time.time()-tstart
                 timeout = euler_ratio*newtontime
 
                 if info > 0:
-                    warn('LGMRES failed to invert Hessian', MatrixRankWarning)
+                    warn('Failed to invert Jacobian', MatrixRankWarning)
 
                 U_new = U + d
 
@@ -204,12 +206,14 @@ def NewtonEulerLS(U,operator,solution_tol=1e-4,operator_tol = 1e-4, max_iters=1e
                 warnings.simplefilter("ignore")
                 U, diff, _, _ = euler(U, G,timeout = timeout,
                                     solution_tol=solution_tol,
+                                    operator_tol=operator_tol,
                                     max_iters=max_euler_iters)
 
         if force_euler and not euler_flag:
             warnings.simplefilter("ignore")
             U, diff, _, _ = euler(U, G,timeout = timeout,
                                 solution_tol=solution_tol,
+                                operator_tol=operator_tol,
                                 max_iters=max_euler_iters)
             Gu,_,_ = operator(U,jacobian=False) 
 
