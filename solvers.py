@@ -24,14 +24,17 @@ def euler(U,operator,solution_tol=1e-4,max_iters=1e5,
         An function returning a tuple : first, the operator value F(U), including
         points on the boundary; and second, the CFL condition.
     solution_tol : scalar
-        Stopping criterion, in the infinity norm.
+        Stopping criterion for the difference between solution iterates, in the
+        infinity norm.
     max_iters : scalar
         Maximum number of iterations.
+    timeout : scalar
+        Exit if computation time exceeds this value.
     zeromean : boolean
         If the operator is only unique up to a constant, then setting zeromean
         to True tells the solver to choose the solution with zero mean, where
         each point is weighted equally.
-    zeromean : boolean
+    zeromax : boolean
         If the operator is only unique up to a constant, then setting zeromax
         to True tells the solver to choose the solution with zero max.
     plotter : function
@@ -90,7 +93,8 @@ class NewtonDecreaseWarning(UserWarning):
     pass
 
 def NewtonEulerLS(U,operator,solution_tol=1e-4,operator_tol = 1e-4, max_iters=1e2,
-        euler_ratio=1,plotter=None, max_euler_iters=None):#, scipysolver = "spsolve",
+        euler_ratio=1,plotter=None, max_euler_iters=None,
+        verbose = False, force_euler=False):
     """
     Use semismooth Newton's method to find the steady state F[U]=0. If an
     insufficient decrease is detected in the Newton step, switch to Euler
@@ -118,6 +122,12 @@ def NewtonEulerLS(U,operator,solution_tol=1e-4,operator_tol = 1e-4, max_iters=1e
         Euler steps relative to one Newton step. Defaults to 1.
     plotter : function
         If provided, this function plots the solution every iteration.
+    max_euler_iters : scalar
+        Maximum number of iterations during Euler steps.
+    verbose : boolean
+        Whether to print diagnostics.
+    force_euler : boolean
+        If True, then always perform Euler steps after each Newton step.
 
     Returns
     -------
@@ -154,6 +164,8 @@ def NewtonEulerLS(U,operator,solution_tol=1e-4,operator_tol = 1e-4, max_iters=1e
 
     for i in itertools.count(0):
 
+
+        euler_flag = False
         try: # TODO simplify warning and exception handling
             with warnings.catch_warnings():
                 warnings.simplefilter('error')
@@ -165,6 +177,7 @@ def NewtonEulerLS(U,operator,solution_tol=1e-4,operator_tol = 1e-4, max_iters=1e
                 #d = spsolve(Jac, -Gu)
 
                 newtontime = time.time()-tstart
+                timeout = euler_ratio*newtontime
 
                 if info > 0:
                     warn('LGMRES failed to invert Hessian', MatrixRankWarning)
@@ -182,14 +195,24 @@ def NewtonEulerLS(U,operator,solution_tol=1e-4,operator_tol = 1e-4, max_iters=1e
                 diff = np.amax(np.absolute(U - U_new))
                 U = U_new
         except (MatrixRankWarning,NewtonDecreaseWarning) as e:
-            print('At iteratate',i,':',e,'; switching to Euler')
-            timeout = euler_ratio*newtontime
+            if verbose:
+                print('At iteratate',i,':',e,'; switching to Euler')
+            euler_flag=True
+
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                U, diff, _, _ = euler(U, G,
+                U, diff, _, _ = euler(U, G,timeout = timeout,
                                     solution_tol=solution_tol,
                                     max_iters=max_euler_iters)
+
+        if force_euler and not euler_flag:
+            warnings.simplefilter("ignore")
+            U, diff, _, _ = euler(U, G,timeout = timeout,
+                                solution_tol=solution_tol,
+                                max_iters=max_euler_iters)
+            Gu,_,_ = operator(U,jacobian=False) 
+
 
         if plotter:
             with warnings.catch_warnings():
@@ -202,87 +225,3 @@ def NewtonEulerLS(U,operator,solution_tol=1e-4,operator_tol = 1e-4, max_iters=1e
         elif i >= max_iters:
             warn("Maximum iterations reached")
             return U, diff, i+1, time.time()-t0
-
-#def ModifiedGaussNewtonLS(U,operator,solution_tol=1e-4,operator_tol=1e-4,max_iters=1e2,
-#        plotter=None):
-#    """
-#    Use a modified semismooth Gauss Newton linesearch to find the steady state F[U]=0.
-#
-#    Parameters
-#    ----------
-#    U : array_like
-#        The initial condition.
-#    operator : function
-#        An function returning a tuple of: the operator value F(U), the Jacobian, and
-#        the CFL condition.  The operator must return values for the boundary
-#        conditions as well.  The operator must have a boolean parameter
-#        'jacobian', which specifies whether to calculate the Jacobian matrix.
-#        If False then the Jacobian must be set to None.
-#    solution_tol : scalar
-#        Stopping criterion of the solution value, in the infinity norm.
-#    operator_tol : scalar
-#        Stopping critera of the operator value, in the infinity norm.
-#    max_iters : scalar
-#        Maximum number of iterations.
-#    plotter : function
-#        If provided, this function plots the solution every iteration.
-#
-#    Returns
-#    -------
-#    U : array_like
-#        The solution.
-#    diff : scalar
-#        The maximum absolute difference between the solution
-#        and the previous iterate.
-#    i : scalar
-#        Number of iterations taken.
-#    time : scalar
-#        CPU time spent computing solution.
-#    """
-#    t0 = time.time()
-#
-#    # Merit function
-#    def Theta(G):
-#        return 0.5* G.dot(G)
-#
-#    # Backtracking parameter
-#    gamma = 0.5
-#
-#    Gu, Jac, _ = operator(U,jacobian=True)
-#    Theta_old = Theta(Gu)
-#
-#    for i in itertools.count(0):
-#
-#        normG = np.linalg.norm(Gu)
-#        Diag = diags(np.full(Gu.shape,normG), format='csr')
-#        H = (Jac.T).dot(Jac) + Diag # positive definite pseudo-Hessian
-#        d = lgmres(H, -(Jac.T).dot(Gu))[0] # search direction
-#
-#        omega = H.dot(d).dot(d)
-#
-#        for k in itertools.count(0):
-#            U_new = U + gamma * 2**-k * d
-#            G_new, Jac_new, _ = operator(U_new,jacobian=True)
-#            Theta_new = Theta(G_new)
-#            
-#            if Theta_new <= Theta_old - gamma * 2**-k * omega :
-#                break
-#
-#        Gu, Jac, Theta_old =  G_new, Jac_new, Theta_new
-#
-#
-#        diff = np.amax(np.absolute(U - U_new))
-#        U = U_new
-#
-#        if plotter:
-#            with warnings.catch_warnings():
-#                warnings.simplefilter("ignore")
-#                plotter(U)
-#
-#
-#        Gumax = np.abs(Gu).max()
-#        if (diff < solution_tol) and Gumax < operator_tol:
-#            return U, diff, i+1, time.time()-t0
-#        elif i >= max_iters:
-#            warn("Maximum iterations reached")
-#            return U, diff, i+1, time.time()-t0
