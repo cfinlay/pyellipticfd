@@ -10,7 +10,7 @@ from scipy.sparse.linalg import  bicgstab
 from scipy.sparse.linalg.dsolve.linsolve import MatrixRankWarning
 
 
-def euler(U,operator,solution_tol=1e-6,operator_tol=1e-6,max_iters=1e5,
+def euler(U,operator,solution_tol=1e-6,operator_tol=1e-6,max_iters=None,
             timeout=None,zeromean=False,zeromax=False,plotter=None):
     """
     Solve F[U] = 0 by iterating Euler steps until the
@@ -53,6 +53,8 @@ def euler(U,operator,solution_tol=1e-6,operator_tol=1e-6,max_iters=1e5,
     time : scalar
         CPU time spent computing solution.
     """
+    if max_iters is None:
+        max_iters = U.size
 
     t0 = time.time()
     if not timeout is None:

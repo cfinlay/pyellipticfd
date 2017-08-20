@@ -133,7 +133,7 @@ def solve(Grid,f,dirichlet=None,neumann=None,U0=None,fdmethod='interpolate',
         F[Grid.bdry] = g
     F[Grid.interior] = f
 
-    dx = np.max([Grid.min_edge_length, Grid.min_radius])
+    dx = np.max([Grid.min_radius,Grid.min_interior_nb_dist])
     dt = 1/2*dx**2 # CFL condition
 
     # Operator over whole domain
