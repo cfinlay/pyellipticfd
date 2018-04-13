@@ -34,10 +34,18 @@ def Utrue(X):
 
     return dist
 
-Grid, plotter = setup_discs.disc(0.05)
+def main():
+    Grid, plotter = setup_discs.disc(0.05)
 
 
-Uce,diff , iters, t = convex_envelope.solve(Grid,obstacle,
-                    solver='newton',fdmethod='interpolate', solution_tol=1e-10)
+    Uce,diff , iters, t = convex_envelope.solve(Grid,obstacle,
+                        solver='newton',fdmethod='interpolate', solution_tol=1e-10)
 
-Err = np.abs(Uce-Utrue(Grid.points)).max()
+    Err = np.abs(Uce-Utrue(Grid.points)).max()
+
+    print('Achieved %g error in %d iterations'%(Err,iters))
+
+    plotter(Uce)
+
+if __name__=="__main__":
+    main()
